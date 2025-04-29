@@ -10,6 +10,9 @@
 #include "lvgl/lvgl.h"
 #include "lv_conf.h"
 #include "lvgl/src/font/lv_font.h"// 包含中文字体头文件
+#include "lvgl/examples/widgets/lv_example_widgets.h"
+#include "../../../lvgl_private.h"
+#include "lvgl/examples/lv_examples.h"
 
 #include "asserts/font/lv_font_sourcehan_sans_bhw_16.c"
 #include "asserts/font/lv_font_sourcehan_sans_bhw_18.c"
@@ -200,6 +203,11 @@ static void set_setting_btn_children_recolor(lv_obj_t *parent, lv_color_t color,
 
 //系统设置
 // static void setting_page_create();
+
+static void hook_division_lines(lv_event_t * e);
+static void add_faded_area(lv_event_t * e);
+static void draw_event_cb(lv_event_t * e);
+static void add_solid_area(lv_event_t * e);
 
 
 /**********************
@@ -827,6 +835,414 @@ static void add_tile(lv_obj_t * parent, bool is_task_on){
 
 }
 
+
+// 示例数据
+static float data[] = {};
+// static float data[] = { 30, 70, 30, 50, 20, 60, 40, 50, 30, 40, 50, 70,
+// 70, 30, 50, 20, 60, 40, 50, 30, 40, 50, 70, 30, 50, 20, 60, 40, 50, 30, 40, 30};
+static int data_value_count = sizeof(data)/sizeof(data[0]);
+static int current_data_index = 0;  // 当前数据索引
+
+static lv_timer_t* chart_timer = NULL;  // 定时器指针
+static lv_chart_series_t* chart_ser = NULL;  // 系列指针
+// 定义动态数据缓冲区
+static float *dynamic_data = NULL;
+static int dynamic_data_capacity = 10;  // 初始容量
+static int dynamic_data_count = 0;
+static  lv_obj_t * play_btn;
+
+// 自定义绘制回调函数
+static void draw_event_cb(lv_event_t* e) {
+    lv_draw_task_t * draw_task = lv_event_get_draw_task(e);
+    lv_draw_dsc_base_t * base_dsc = lv_draw_task_get_draw_dsc(draw_task);
+
+    if(base_dsc->part == LV_PART_ITEMS && lv_draw_task_get_type(draw_task) == LV_DRAW_TASK_TYPE_LINE) {
+        add_faded_area(e);
+        // add_solid_area(e);
+    }
+}
+
+//曲线图绘制纯色区域
+static void add_solid_area(lv_event_t * e)
+{
+    lv_obj_t * obj = lv_event_get_target(e);
+    lv_area_t coords;
+    lv_obj_get_coords(obj, &coords);
+
+    lv_draw_task_t * draw_task = lv_event_get_draw_task(e);
+    lv_draw_dsc_base_t * base_dsc = lv_draw_task_get_draw_dsc(draw_task);
+
+    const lv_chart_series_t * ser = lv_chart_get_series_next(obj, NULL);
+
+    // 设置新的渐变区域颜色 - 这里修改区域颜色
+    lv_color_t area_color = lv_color_hex(0x99ff99);//lv_palette_main(LV_PALETTE_TEAL);
+    lv_color_t line_color = lv_color_hex(0x00ff00);//lv_palette_main(LV_PALETTE_DEEP_ORANGE);
+    // lv_opa_t fill_opa = LV_OPA_50; // 50%透明度
+
+    /*Draw a triangle below the line witch some opacity gradient*/
+    lv_draw_line_dsc_t * draw_line_dsc = lv_draw_task_get_draw_dsc(draw_task);
+    lv_draw_triangle_dsc_t tri_dsc;
+
+    lv_draw_triangle_dsc_init(&tri_dsc);
+    tri_dsc.p[0].x = draw_line_dsc->p1.x;
+    tri_dsc.p[0].y = draw_line_dsc->p1.y;
+    tri_dsc.p[1].x = draw_line_dsc->p2.x;
+    tri_dsc.p[1].y = draw_line_dsc->p2.y;
+    tri_dsc.p[2].x = draw_line_dsc->p1.y < draw_line_dsc->p2.y ? draw_line_dsc->p1.x : draw_line_dsc->p2.x;
+    tri_dsc.p[2].y = LV_MAX(draw_line_dsc->p1.y, draw_line_dsc->p2.y);
+
+    // 使用纯色
+    tri_dsc.bg_color = area_color;
+    // tri_dsc.bg_opa = fill_opa;
+
+    lv_draw_triangle(base_dsc->layer, &tri_dsc);
+
+    // /*Draw rectangle below the triangle*/
+    lv_draw_rect_dsc_t rect_dsc;
+    lv_draw_rect_dsc_init(&rect_dsc);
+
+    // 使用纯色
+    rect_dsc.bg_color = area_color;
+    // rect_dsc.bg_opa = fill_opa;
+
+    lv_area_t rect_area;
+    rect_area.x1 = (int32_t)draw_line_dsc->p1.x;
+    rect_area.x2 = (int32_t)draw_line_dsc->p2.x - 1;
+    rect_area.y1 = (int32_t)LV_MAX(draw_line_dsc->p1.y, draw_line_dsc->p2.y) - 1;
+    rect_area.y2 = (int32_t)coords.y2;
+    lv_draw_rect(base_dsc->layer, &rect_dsc, &rect_area);
+
+    //修改线条颜色
+    draw_line_dsc->color = line_color;
+    draw_line_dsc->width = 4;  // 加粗线条
+
+}
+
+//曲线图绘制渐变区域
+static void add_faded_area(lv_event_t * e)
+{
+    lv_obj_t * obj = lv_event_get_target(e);
+    lv_area_t coords;
+    lv_obj_get_coords(obj, &coords);
+
+    lv_draw_task_t * draw_task = lv_event_get_draw_task(e);
+    lv_draw_dsc_base_t * base_dsc = lv_draw_task_get_draw_dsc(draw_task);
+
+    const lv_chart_series_t * ser = lv_chart_get_series_next(obj, NULL);
+    // lv_color_t ser_color = lv_chart_get_series_color(obj, ser);
+
+    // 设置新的渐变区域颜色
+    lv_color_t area_color = lv_chart_get_series_color(obj, ser);
+    lv_color_t line_color = lv_color_hex(0x3498db);//lv_palette_main(LV_PALETTE_DEEP_ORANGE);
+
+    /*Draw a triangle below the line witch some opacity gradient*/
+    lv_draw_line_dsc_t * draw_line_dsc = lv_draw_task_get_draw_dsc(draw_task);
+    lv_draw_triangle_dsc_t tri_dsc;
+
+    lv_draw_triangle_dsc_init(&tri_dsc);
+    tri_dsc.p[0].x = draw_line_dsc->p1.x;
+    tri_dsc.p[0].y = draw_line_dsc->p1.y;
+    tri_dsc.p[1].x = draw_line_dsc->p2.x;
+    tri_dsc.p[1].y = draw_line_dsc->p2.y;
+    tri_dsc.p[2].x = draw_line_dsc->p1.y < draw_line_dsc->p2.y ? draw_line_dsc->p1.x : draw_line_dsc->p2.x;
+    tri_dsc.p[2].y = LV_MAX(draw_line_dsc->p1.y, draw_line_dsc->p2.y);
+    tri_dsc.bg_grad.dir = LV_GRAD_DIR_VER;
+
+    int32_t full_h = lv_obj_get_height(obj);
+    int32_t fract_uppter = (int32_t)(LV_MIN(draw_line_dsc->p1.y, draw_line_dsc->p2.y) - coords.y1) * 255 / full_h;
+    int32_t fract_lower = (int32_t)(LV_MAX(draw_line_dsc->p1.y, draw_line_dsc->p2.y) - coords.y1) * 255 / full_h;
+    tri_dsc.bg_grad.stops[0].color = area_color;
+    tri_dsc.bg_grad.stops[0].opa = 255 - fract_uppter;
+    tri_dsc.bg_grad.stops[0].frac = 0;
+    tri_dsc.bg_grad.stops[1].color = area_color;
+    tri_dsc.bg_grad.stops[1].opa = 255 - fract_lower;
+    tri_dsc.bg_grad.stops[1].frac = 255;
+
+    lv_draw_triangle(base_dsc->layer, &tri_dsc);
+
+    /*Draw rectangle below the triangle*/
+    lv_draw_rect_dsc_t rect_dsc;
+    lv_draw_rect_dsc_init(&rect_dsc);
+    rect_dsc.bg_grad.dir = LV_GRAD_DIR_VER;
+    rect_dsc.bg_grad.stops[0].color = area_color;
+    rect_dsc.bg_grad.stops[0].frac = 0;
+    rect_dsc.bg_grad.stops[0].opa = 255 - fract_lower;
+    rect_dsc.bg_grad.stops[1].color = area_color;
+    rect_dsc.bg_grad.stops[1].frac = 255;
+    rect_dsc.bg_grad.stops[1].opa = 0;
+
+    lv_area_t rect_area;
+    rect_area.x1 = (int32_t)draw_line_dsc->p1.x;
+    rect_area.x2 = (int32_t)draw_line_dsc->p2.x - 1;
+    rect_area.y1 = (int32_t)LV_MAX(draw_line_dsc->p1.y, draw_line_dsc->p2.y) - 1;
+    rect_area.y2 = (int32_t)coords.y2;
+    lv_draw_rect(base_dsc->layer, &rect_dsc, &rect_area);
+
+    //修改线条颜色
+    draw_line_dsc->color = line_color;
+    draw_line_dsc->width = 4;  // 加粗线条
+
+}
+
+
+// 静态曲线图的定时器回调函数
+static void timer_cb(lv_timer_t* timer) {
+    lv_obj_t* chart = (lv_obj_t*)timer->user_data;
+    
+    if(current_data_index >= data_value_count) {
+        lv_timer_del(chart_timer);  // 数据全部添加完毕，删除定时器
+        chart_timer = NULL;
+        return;
+    }
+
+    // 添加下一个数据点
+    lv_chart_set_next_value(chart, chart_ser, data[current_data_index]);
+    current_data_index++;
+
+    // 计算需要的缩放比例
+    lv_coord_t chart_width = lv_obj_get_width(chart);
+    lv_coord_t point_width = 8; // 每个点期望的像素宽度
+    lv_coord_t total_width_needed = dynamic_data_count * point_width;
+    
+    if(total_width_needed > chart_width) {
+                // 使用变换缩放X轴
+        lv_coord_t zoom_x = (chart_width * 256) / total_width_needed;
+        zoom_x = LV_MAX(zoom_x, 64);  // 最小25%缩放
+        
+        // 仅缩放X轴
+        lv_obj_set_style_transform_width(chart, zoom_x, 0);
+        lv_obj_set_style_transform_height(chart, 256, 0);  // Y轴不缩放
+        lv_obj_refresh_ext_draw_size(chart);
+
+    }
+    // 滚动到最右侧
+    lv_obj_scroll_to_x(chart, LV_COORD_MAX, LV_ANIM_OFF);
+
+}
+
+// 动态曲线图的定时器释放
+void free_chart_resources() {
+    if(chart_timer) {
+        lv_timer_del(chart_timer);// 数据全部添加完毕，删除定时器
+        chart_timer = NULL;
+    }
+    if(dynamic_data) {
+        lv_free(dynamic_data);
+        dynamic_data = NULL;
+    }
+    dynamic_data_capacity = 0;
+    dynamic_data_count = 0;
+
+}
+
+// 动态曲线图的定时器回调函数
+static void dynamic_timer_cb(lv_timer_t* timer) {
+    lv_obj_t* chart = (lv_obj_t*)timer->user_data;
+
+    // 检查并扩展缓冲区
+    if(dynamic_data_count >= dynamic_data_capacity) {
+        dynamic_data_capacity *= 2;
+        float* new_data = lv_realloc(dynamic_data, dynamic_data_capacity * sizeof(float));
+        if(!new_data) {
+            LV_LOG_ERROR("Failed to realloc memory");
+            return;
+        }
+        dynamic_data = new_data;
+    }
+    
+    // 添加新的随机数据点 (范围0-100)
+    dynamic_data[dynamic_data_count] = (float)(lv_rand(0, 100));
+    dynamic_data_count++;
+    LV_LOG_USER("count: %d", dynamic_data_count);
+
+    // 更新图表点数
+    lv_chart_set_point_count(chart, dynamic_data_count);
+
+    // // 使用扩展数组方式更新数据
+    for(int i = 0; i < dynamic_data_count; i++) {
+        lv_chart_set_next_value(chart, chart_ser, dynamic_data[i]);
+    }
+    
+    // 计算需要的缩放比例
+    lv_coord_t chart_width = lv_obj_get_width(chart);
+    lv_coord_t point_width = 8; // 每个点期望的像素宽度
+    lv_coord_t total_width_needed = dynamic_data_count * point_width;
+    
+    if(total_width_needed > chart_width) {
+                // 使用变换缩放X轴
+        lv_coord_t zoom_x = (chart_width * 256) / total_width_needed;
+        zoom_x = LV_MAX(zoom_x, 64);  // 最小25%缩放
+        
+        // 仅缩放X轴
+        lv_obj_set_style_transform_width(chart, zoom_x, 0);
+        lv_obj_set_style_transform_height(chart, 256, 0);  // Y轴不缩放
+        lv_obj_refresh_ext_draw_size(chart);
+
+    }
+    // 滚动到最右侧
+    lv_obj_scroll_to_x(chart, LV_COORD_MAX, LV_ANIM_OFF);
+
+}
+
+/**
+ * gradient Color Area spline Chart
+ */
+void create_aainfographics_chart() {
+    // 创建图表对象
+    lv_obj_t* chart = lv_chart_create(lv_scr_act());
+    lv_obj_set_size(chart, 300, 200);
+    lv_obj_center(chart);
+    
+    // 设置图表类型为样条线
+    lv_chart_set_type(chart, LV_CHART_TYPE_LINE);
+    
+    // 设置范围
+    lv_chart_set_range(chart, LV_CHART_AXIS_PRIMARY_Y, 0, 100);
+    
+    // 设置足够多的点以容纳所有数据
+    lv_chart_set_point_count(chart, data_value_count);
+    
+    // 彻底清除所有网格线和背景
+    // lv_obj_set_style_bg_opa(chart, LV_OPA_TRANSP, LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(chart, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(chart, lv_color_white(), 0);
+    lv_obj_set_style_line_width(chart, 0, LV_PART_MAIN);
+    lv_obj_set_style_line_width(chart, 0, LV_PART_INDICATOR);
+    lv_obj_set_style_border_width(chart, 0, LV_PART_MAIN);
+
+    //remove padding 
+    lv_obj_set_style_pad_all(chart, 0, 0);
+
+    // 禁用数据点标记
+    lv_obj_set_style_size(chart, 0, 0, LV_PART_INDICATOR);
+
+    //使线条更平滑
+    lv_obj_set_style_line_rounded(chart, true, LV_PART_ITEMS);
+
+    // 添加数据系列
+    chart_ser = lv_chart_add_series(chart, lv_color_hex(0x3498db), LV_CHART_AXIS_PRIMARY_Y);
+    
+    // 初始化数据为0
+    for(int i = 0; i < data_value_count; i++) {
+        lv_chart_set_next_value(chart, chart_ser, 0);
+    }
+    
+    // 自定义绘制回调
+    lv_obj_add_event_cb(chart, draw_event_cb, LV_EVENT_DRAW_TASK_ADDED, NULL);
+    lv_obj_add_flag(chart, LV_OBJ_FLAG_SEND_DRAW_TASK_EVENTS);
+    
+    // 创建定时器，每秒添加一个数据点
+    current_data_index = 0;  // 重置索引
+    chart_timer = lv_timer_create(timer_cb, 1000, chart);  // 1000ms = 1秒
+}
+
+//动态曲线图绘制
+void create_dynamic_chart(lv_obj_t* parent) {
+    lv_obj_update_layout(parent); // 强制更新布局,从而可以获取父对象尺寸
+
+    float v_max = 100;
+    int chart_max_h = 80 * lv_obj_get_height(parent) / 100;
+    int chart_max_w = 88 * lv_obj_get_width(parent) / 100;
+    
+    // 初始化动态数据
+    dynamic_data = lv_malloc(dynamic_data_capacity * sizeof(float));
+    if(!dynamic_data) {
+        LV_LOG_ERROR("Failed to allocate memory");
+        return;
+    }
+    
+    // 创建图表对象
+    lv_obj_t* chart = lv_chart_create(parent);
+    lv_obj_set_size(chart, chart_max_w, chart_max_h);
+    lv_obj_align(chart, LV_ALIGN_BOTTOM_RIGHT, 0, 0);
+    
+    // 图表设置
+    lv_chart_set_type(chart, LV_CHART_TYPE_LINE);
+    lv_chart_set_range(chart, LV_CHART_AXIS_PRIMARY_Y, 0, v_max);
+    lv_chart_set_point_count(chart, dynamic_data_count);
+    
+    // 样式设置
+    lv_obj_set_style_bg_opa(chart, LV_OPA_TRANSP, LV_PART_MAIN);
+    lv_obj_set_style_line_width(chart, 0, LV_PART_MAIN);
+    lv_obj_set_style_line_width(chart, 0, LV_PART_INDICATOR);
+    lv_obj_set_style_border_width(chart, 0, LV_PART_MAIN);
+    lv_obj_set_style_line_width(chart, 0, LV_PART_SCROLLBAR);
+    lv_obj_set_style_pad_all(chart, 0, 0);
+    lv_obj_set_style_size(chart, 0, 0, LV_PART_INDICATOR);
+    lv_obj_set_style_line_rounded(chart, true, LV_PART_ITEMS);
+    
+    // 添加系列
+    chart_ser = lv_chart_add_series(chart, lv_color_hex(0x3498db), LV_CHART_AXIS_PRIMARY_Y);
+
+    // 自定义绘制曲线区域回调
+    lv_obj_add_event_cb(chart, draw_event_cb, LV_EVENT_DRAW_TASK_ADDED, NULL);
+    lv_obj_add_flag(chart, LV_OBJ_FLAG_SEND_DRAW_TASK_EVENTS);
+    
+    // // 创建定时器
+    chart_timer = lv_timer_create(dynamic_timer_cb, 1000, chart);
+}
+
+//静态曲线图绘制
+static void add_chart(lv_obj_t * parent){
+
+    lv_obj_update_layout(parent); // 强制更新布局,从而可以获取父对象尺寸
+
+    float v_max = 100;
+    int chart_max_h = 80 * lv_obj_get_height(parent) / 100; //89
+    int chart_max_w = 88 * lv_obj_get_width(parent) / 100; //210
+    LV_LOG_USER("w: %d, h: %d, count: %d", chart_max_w, chart_max_h, data_value_count);
+
+    // 创建图表对象
+    lv_obj_t* chart = lv_chart_create(parent);
+    lv_obj_set_size(chart, chart_max_w, chart_max_h);
+    lv_obj_align(chart, LV_ALIGN_BOTTOM_RIGHT, 0, 0);
+    
+    // 设置图表类型为样条线
+    lv_chart_set_type(chart, LV_CHART_TYPE_LINE);
+    
+    // 设置范围
+    lv_chart_set_range(chart, LV_CHART_AXIS_PRIMARY_Y, 0, v_max);
+    
+    // 设置足够多的点以容纳所有数据
+    lv_chart_set_point_count(chart, data_value_count);
+    
+    // 彻底清除所有网格线和背景
+    lv_obj_set_style_bg_opa(chart, LV_OPA_TRANSP, LV_PART_MAIN);
+    lv_obj_set_style_line_width(chart, 0, LV_PART_MAIN);
+    lv_obj_set_style_line_width(chart, 0, LV_PART_INDICATOR);
+    lv_obj_set_style_border_width(chart, 0, LV_PART_MAIN);
+
+    // 禁用滚动条和分割线
+    lv_obj_set_style_line_width(chart, 0, LV_PART_SCROLLBAR);
+
+    //remove padding 
+    lv_obj_set_style_pad_all(chart, 0, 0); 
+    
+    // 禁用数据点标记
+    lv_obj_set_style_size(chart, 0, 0, LV_PART_INDICATOR);
+
+    //使线条更平滑
+    lv_obj_set_style_line_rounded(chart, true, LV_PART_ITEMS);
+
+    // 添加数据系列, 线条颜色 0x3498db
+    chart_ser = lv_chart_add_series(chart, lv_color_hex(0x3498db), LV_CHART_AXIS_PRIMARY_Y);
+    
+    // 初始化数据为0
+    for(int i = 0; i < data_value_count; i++) {
+        lv_chart_set_next_value(chart, chart_ser, 0);
+    }
+    
+    // 自定义绘制曲线区域回调
+    lv_obj_add_event_cb(chart, draw_event_cb, LV_EVENT_DRAW_TASK_ADDED, NULL);
+    lv_obj_add_flag(chart, LV_OBJ_FLAG_SEND_DRAW_TASK_EVENTS);
+    
+    // 创建定时器，每秒添加一个数据点
+    current_data_index = 0;  // 重置索引
+    chart_timer = lv_timer_create(timer_cb, 1000, chart);  // 1000ms = 1秒
+
+}
+
+
 static void add_tile3(lv_obj_t * parent){
     char * labs[9] = {"镍氢", "00:00:00", "100%", "9999mAh", "4.20V", "1.01A", "56mΩ", "45°C, 100°F", "9999Wh"};
     int h = 9 * lv_obj_get_height(parent) / 100;
@@ -887,30 +1303,33 @@ static void add_tile3(lv_obj_t * parent){
         lv_obj_align(tage_img_1, LV_ALIGN_CENTER, 0, 0);
     }
 
+    // add_chart(tage); //静态曲线图
+    create_dynamic_chart(tage);
+
+    // lv_obj_t * area = lv_obj_create(tage);
+    // lv_obj_set_size(area, lv_pct(51), lv_pct(43));
+    // lv_obj_add_style(area, &list_item_style, 0);
+    // lv_obj_set_style_bg_opa(area, LV_OPA_COVER, 0);
+    // lv_obj_set_style_bg_color(area, lv_color_hex(0xff99c2), 0);
+    // lv_obj_align_to(area, tage_left_bottom, LV_ALIGN_OUT_RIGHT_BOTTOM, 0, 0);
     
-    lv_obj_t * area = lv_obj_create(tage);
-    lv_obj_set_size(area, lv_pct(51), lv_pct(43));
-    lv_obj_add_style(area, &list_item_style, 0);
-    lv_obj_set_style_bg_opa(area, LV_OPA_COVER, 0);
-    lv_obj_set_style_bg_color(area, lv_color_hex(0xff99c2), 0);
-    lv_obj_align_to(area, tage_left_bottom, LV_ALIGN_OUT_RIGHT_BOTTOM, 0, 0);
-    
-    lv_obj_t * area_title = lv_obj_create(tage);
-    lv_obj_set_size(area_title, lv_pct(51), 4);
-    lv_obj_add_style(area_title, &list_item_style, 0);
-    lv_obj_set_style_bg_opa(area_title, LV_OPA_COVER, 0);
-    lv_obj_set_style_bg_color(area_title, lv_color_hex(0xff5599), 0);
-    lv_obj_set_style_line_rounded(area_title, true, 0);
-    lv_obj_set_style_radius(area_title, 2 , 0);
-    lv_obj_align_to(area_title, area, LV_ALIGN_OUT_TOP_MID, 0, 2);
+    // lv_obj_t * area_title = lv_obj_create(tage);
+    // lv_obj_set_size(area_title, lv_pct(51), 4);
+    // lv_obj_add_style(area_title, &list_item_style, 0);
+    // lv_obj_set_style_bg_opa(area_title, LV_OPA_COVER, 0);
+    // lv_obj_set_style_bg_color(area_title, lv_color_hex(0xff5599), 0);
+    // lv_obj_set_style_line_rounded(area_title, true, 0);
+    // lv_obj_set_style_radius(area_title, 2 , 0);
+    // lv_obj_align_to(area_title, area, LV_ALIGN_OUT_TOP_MID, 0, 2);
 
 
-    lv_obj_t * play_btn = lv_btn_create(parent);
+    play_btn = lv_btn_create(parent);
     lv_obj_set_size(play_btn, lv_pct(100), lv_pct(13));
     lv_obj_add_style(play_btn, &list_item_style, 0);
     lv_obj_set_style_bg_opa(play_btn, LV_OPA_COVER, 0);
     lv_obj_set_style_bg_color(play_btn, BAR_GREEN, 0);
     lv_obj_align(play_btn, LV_ALIGN_BOTTOM_MID, 0, 0);
+lv_obj_add_event_cb(play_btn, free_chart_resources, LV_EVENT_CLICKED, NULL);
 
     lv_obj_t * left_label = lv_label_create(play_btn);
     lv_label_set_text(left_label, LV_SYMBOL_UP);
@@ -951,55 +1370,55 @@ static void task_page_create(){
     // lv_obj_add_event_cb(tv, tileview_scroll_event_handler, LV_EVENT_VALUE_CHANGED, NULL);
 
 
-    // lv_obj_t * tile3 = lv_tileview_add_tile(tv, 1, 0, (lv_dir_t)(LV_DIR_RIGHT | LV_DIR_TOP));
-    // add_tile3(tile3);
+    lv_obj_t * tile3 = lv_tileview_add_tile(tv, 1, 0, (lv_dir_t)(LV_DIR_RIGHT | LV_DIR_TOP));
+    add_tile3(tile3);
 
-    lv_obj_t * tile4 = lv_tileview_add_tile(tv, 0, 0, (lv_dir_t)(LV_DIR_RIGHT | LV_DIR_TOP));
+    // lv_obj_t * tile4 = lv_tileview_add_tile(tv, 0, 0, (lv_dir_t)(LV_DIR_RIGHT | LV_DIR_TOP));
 
 
-    static int32_t col_dsc[] = {58, 58, 58, 58, LV_GRID_TEMPLATE_LAST};
-    static int32_t row_dsc[] = {48, 48, 48, 48, LV_GRID_TEMPLATE_LAST};
+    // static int32_t col_dsc[] = {58, 58, 58, 58, LV_GRID_TEMPLATE_LAST};
+    // static int32_t row_dsc[] = {48, 48, 48, 48, LV_GRID_TEMPLATE_LAST};
 
-    lv_obj_t * grid = lv_obj_create(tile4);
-    lv_obj_set_style_grid_column_dsc_array(grid, col_dsc, 0);
-    lv_obj_set_style_grid_row_dsc_array(grid, row_dsc, 0);
-    lv_obj_set_size(grid, lv_pct(100), 98);
-    lv_obj_set_layout(grid, LV_LAYOUT_GRID);
-    lv_obj_align(grid, LV_ALIGN_TOP_MID, 0, 0);
+    // lv_obj_t * grid = lv_obj_create(tile4);
+    // lv_obj_set_style_grid_column_dsc_array(grid, col_dsc, 0);
+    // lv_obj_set_style_grid_row_dsc_array(grid, row_dsc, 0);
+    // lv_obj_set_size(grid, lv_pct(100), 98);
+    // lv_obj_set_layout(grid, LV_LAYOUT_GRID);
+    // lv_obj_align(grid, LV_ALIGN_TOP_MID, 0, 0);
 
-    lv_obj_t * label;
-    lv_obj_t * obj;
-    lv_obj_t * img;
-    lv_obj_t * bar;
+    // lv_obj_t * label;
+    // lv_obj_t * obj;
+    // lv_obj_t * img;
+    // lv_obj_t * bar;
 
-    uint8_t i;
-    for(i = 0; i < 8; i++) {
-        uint8_t col = i % 4;
-        uint8_t row = i / 4;
+    // uint8_t i;
+    // for(i = 0; i < 8; i++) {
+    //     uint8_t col = i % 4;
+    //     uint8_t row = i / 4;
 
-        obj = lv_button_create(grid);
-        lv_obj_add_style(obj, &list_item_style, 0);
-        /*Stretch the cell horizontally and vertically too
-         *Set span to 1 to make the cell 1 column/row sized*/
-        lv_obj_set_grid_cell(obj, LV_GRID_ALIGN_STRETCH, col, 1,
-                             LV_GRID_ALIGN_STRETCH, row, 1);
+    //     obj = lv_button_create(grid);
+    //     lv_obj_add_style(obj, &list_item_style, 0);
+    //     /*Stretch the cell horizontally and vertically too
+    //      *Set span to 1 to make the cell 1 column/row sized*/
+    //     lv_obj_set_grid_cell(obj, LV_GRID_ALIGN_STRETCH, col, 1,
+    //                          LV_GRID_ALIGN_STRETCH, row, 1);
 
-        label = lv_label_create(obj);
-        lv_label_set_text_fmt(label, "c%d, r%d", col, row);
-        lv_obj_center(label);
+    //     label = lv_label_create(obj);
+    //     lv_label_set_text_fmt(label, "c%d, r%d", col, row);
+    //     lv_obj_center(label);
 
-        img = lv_img_create(obj);
-        lv_img_set_src(img, &signnum_2);
-        lv_obj_align(img, LV_ALIGN_TOP_LEFT, 0, 0);
+    //     img = lv_img_create(obj);
+    //     lv_img_set_src(img, &signnum_2);
+    //     lv_obj_align(img, LV_ALIGN_TOP_LEFT, 0, 0);
 
-        bar = lv_bar_create(obj);
-        lv_obj_add_style(bar, &list_item_style, 0);
+    //     bar = lv_bar_create(obj);
+    //     lv_obj_add_style(bar, &list_item_style, 0);
         
-        lv_bar_set_value(bar, 50, 0);
+    //     lv_bar_set_value(bar, 50, 0);
 
 
 
-    }
+    // }
 
 
 
