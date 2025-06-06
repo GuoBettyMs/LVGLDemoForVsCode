@@ -85,6 +85,7 @@ if(USE_FREERTOS)
     target_link_libraries(main freertos_config FreeRTOS)
 else()
     add_executable(main
+        ${PROJECT_SOURCE_DIR}/main/src/ui/custom_chart.c
         ${PROJECT_SOURCE_DIR}/main/src/c.c
         ${PROJECT_SOURCE_DIR}/main/src/main.c
         ${PROJECT_SOURCE_DIR}/main/src/mouse_cursor_icon.c

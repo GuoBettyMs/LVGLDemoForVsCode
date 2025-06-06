@@ -18,6 +18,7 @@
 #include "glob.h"
 
 #include "c.h"
+#include "ui/custom_chart.h"
 
 /*********************
  *      DEFINES
@@ -80,7 +81,7 @@ int main(int argc, char **argv)
 
   #if LV_USE_OS == LV_OS_NONE
  
-  // lv_demo_widgets();
+  //lv_demo_widgets();
   c();
 
   while(1) {
