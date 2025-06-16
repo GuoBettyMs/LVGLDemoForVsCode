@@ -5,6 +5,17 @@
 extern "C" {
 #endif
 
+
+/*********************
+ *      INCLUDES
+ *********************/
+
+
+
+/*********************
+ *      DEFINES
+ *********************/
+
 // 兼容v8的过渡宏（可选）
 #if LVGL_VERSION_MAJOR < 9
     #define LV_IMAGE_DECLARE(img) LV_IMG_DECLARE(img)
@@ -12,7 +23,11 @@ extern "C" {
 
 
 // 声明字体
-LV_FONT_DECLARE(lv_font_sourcehan_sans_bhw_16);
+LV_FONT_DECLARE(font_04B_20_8);
+LV_FONT_DECLARE(font_bahnschrift_18);
+LV_FONT_DECLARE(font_bahnschrift_20);
+LV_FONT_DECLARE(font_isdtyahei_18);
+LV_FONT_DECLARE(font_isdtyahei_20);
 
 
 // 声明图像描述符

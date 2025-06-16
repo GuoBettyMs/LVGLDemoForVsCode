@@ -71,7 +71,17 @@ add_compile_definitions($<$<BOOL:${LV_USE_FFMPEG}>:LV_USE_FFMPEG=1>)
 add_subdirectory(lvgl)
 target_include_directories(lvgl PUBLIC ${PROJECT_SOURCE_DIR} ${SDL2_INCLUDE_DIRS})
 
+
 # Create the main executable, depending on the FreeRTOS option
+# 定义字体文件列表
+set(FONT_SOURCES
+    ${PROJECT_SOURCE_DIR}/main/src/assets/font/font_04B_20_8.c
+    ${PROJECT_SOURCE_DIR}/main/src/assets/font/font_bahnschrift_20.c
+    ${PROJECT_SOURCE_DIR}/main/src/assets/font/font_bahnschrift_18.c
+    ${PROJECT_SOURCE_DIR}/main/src/assets/font/font_isdtyahei_18.c
+    ${PROJECT_SOURCE_DIR}/main/src/assets/font/font_isdtyahei_20.c
+    # 添加更多字体...
+)
 if(USE_FREERTOS)
     add_executable(main
         ${PROJECT_SOURCE_DIR}/main/src/c.c
@@ -80,15 +90,24 @@ if(USE_FREERTOS)
         ${PROJECT_SOURCE_DIR}/main/src/mouse_cursor_icon.c
         ${PROJECT_SOURCE_DIR}/main/src/FreeRTOS_Posix_Port.c
         ${FREERTOS_SOURCES}  # Add only if USE_FREERTOS is enabled
+        ${FONT_SOURCES}
     )
     # Link FreeRTOS libraries
     target_link_libraries(main freertos_config FreeRTOS)
 else()
+message(STATUS "PROJECT_SOURCE_DIR = ${PROJECT_SOURCE_DIR}")
     add_executable(main
-        ${PROJECT_SOURCE_DIR}/main/src/ui/custom_chart.c
+        ${PROJECT_SOURCE_DIR}/main/src/ui/channel_battery_information_page.c
+        ${PROJECT_SOURCE_DIR}/main/src/components/custom_chart/custom_chart.c
+        ${PROJECT_SOURCE_DIR}/main/src/components/custom_chart/lv_chart_package.c
+        ${PROJECT_SOURCE_DIR}/main/src/ui/gnx/page/page_info.c
+        ${PROJECT_SOURCE_DIR}/main/src/ui/gnx/gnx_main.c
         ${PROJECT_SOURCE_DIR}/main/src/c.c
         ${PROJECT_SOURCE_DIR}/main/src/main.c
         ${PROJECT_SOURCE_DIR}/main/src/mouse_cursor_icon.c
+        # 添加字体文件
+        ${FONT_SOURCES}
+
     )
 endif()
 

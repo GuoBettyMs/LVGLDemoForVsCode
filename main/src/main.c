@@ -17,8 +17,9 @@
 #include "lvgl/demos/lv_demos.h"
 #include "glob.h"
 
+#include "ui/gnx/gnx_main.h"
 #include "c.h"
-#include "ui/custom_chart.h"
+#include "ui/channel_battery_information_page.h"
 
 /*********************
  *      DEFINES
@@ -82,7 +83,9 @@ int main(int argc, char **argv)
   #if LV_USE_OS == LV_OS_NONE
  
   //lv_demo_widgets();
-  c();
+  //c();
+  init_ui();
+
 
   while(1) {
           
