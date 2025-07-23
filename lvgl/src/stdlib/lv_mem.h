@@ -36,9 +36,9 @@ typedef struct {
     size_t total_size;  /**< Total heap size */
     size_t free_cnt;
     size_t free_size;   /**< Size of available memory */
-    size_t free_biggest_size;
+    size_t free_biggest_size; //最大连续空闲快
     size_t used_cnt;
-    size_t max_used;    /**< Max size of Heap memory used */
+    size_t max_used;    //历史上的最大使用量 /**< Max size of Heap memory used */
     uint8_t used_pct;   /**< Percentage used */
     uint8_t frag_pct;   /**< Amount of fragmentation */
 } lv_mem_monitor_t;

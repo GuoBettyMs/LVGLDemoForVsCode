@@ -12,10 +12,7 @@ extern "C" {
 #include "lvgl/lvgl.h"
 #include "assets/img/image_defines.h"
 
-#include "components/custom_chart/lv_chart_package.h"
-
 #include "type_def.h"
-#include "components/custom_chart/custom_chart.h"
 
 /*********************
  *      DEFINES
@@ -231,8 +228,8 @@ typedef enum
  **********************/
 
 void c(void);
-void mem_monitor();
-void detailed_mem_monitor();  // 声明函数
+// void mem_monitor();
+// void detailed_mem_monitor();  // 声明函数
 
 void create_1(void);
 

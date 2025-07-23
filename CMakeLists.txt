@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.10)
 project(lvgl C CXX)
 
-# Set the correct FreeRTOS port for your system (e.g., Posix for WSL)
+# Set the correct  port for your system (e.g., Posix for WSL)
 set(FREERTOS_PORT GCC_POSIX CACHE STRING "Port for FreeRTOS on Posix environment")
 
 unset(USE_FREERTOS CACHE)
@@ -84,7 +84,6 @@ set(FONT_SOURCES
 )
 if(USE_FREERTOS)
     add_executable(main
-        ${PROJECT_SOURCE_DIR}/main/src/c.c
         ${PROJECT_SOURCE_DIR}/main/src/main.c
         ${PROJECT_SOURCE_DIR}/main/src/freertos_main.cpp
         ${PROJECT_SOURCE_DIR}/main/src/mouse_cursor_icon.c
@@ -99,15 +98,16 @@ message(STATUS "PROJECT_SOURCE_DIR = ${PROJECT_SOURCE_DIR}")
     add_executable(main
         ${PROJECT_SOURCE_DIR}/main/src/ui/channel_battery_information_page.c
         ${PROJECT_SOURCE_DIR}/main/src/components/custom_chart/custom_chart.c
-        ${PROJECT_SOURCE_DIR}/main/src/components/custom_chart/lv_chart_package.c
+        ${PROJECT_SOURCE_DIR}/main/src/ui/gnx/page/page_setting.c
         ${PROJECT_SOURCE_DIR}/main/src/ui/gnx/page/page_info.c
         ${PROJECT_SOURCE_DIR}/main/src/ui/gnx/gnx_main.c
+        ${PROJECT_SOURCE_DIR}/main/src/ui/gnx/strings.c
+        ${PROJECT_SOURCE_DIR}/main/src/ui/gnx/strings/en.c
         ${PROJECT_SOURCE_DIR}/main/src/c.c
         ${PROJECT_SOURCE_DIR}/main/src/main.c
         ${PROJECT_SOURCE_DIR}/main/src/mouse_cursor_icon.c
         # 添加字体文件
         ${FONT_SOURCES}
-
     )
 endif()
 

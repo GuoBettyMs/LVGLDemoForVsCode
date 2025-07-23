@@ -1,5 +1,11 @@
+/**
+ * @file image_defines.h
+ *
+ */
+
 #ifndef IMAGE_DEFINES_H
 #define IMAGE_DEFINES_H
+
 
 #ifdef __cplusplus
 extern "C" {
@@ -20,14 +26,6 @@ extern "C" {
 #if LVGL_VERSION_MAJOR < 9
     #define LV_IMAGE_DECLARE(img) LV_IMG_DECLARE(img)
 #endif
-
-
-// 声明字体
-LV_FONT_DECLARE(font_04B_20_8);
-LV_FONT_DECLARE(font_bahnschrift_18);
-LV_FONT_DECLARE(font_bahnschrift_20);
-LV_FONT_DECLARE(font_isdtyahei_18);
-LV_FONT_DECLARE(font_isdtyahei_20);
 
 
 // 声明图像描述符
@@ -83,8 +81,6 @@ LV_IMAGE_DECLARE(port_batt_0);
 
 LV_IMAGE_DECLARE(cycle);
 LV_IMAGE_DECLARE(signnum_2);
-
-
 
 
 

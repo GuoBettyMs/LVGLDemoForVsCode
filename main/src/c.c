@@ -6,13 +6,19 @@
 /*********************
  *      INCLUDES
  *********************/
+
+#include "c.h"
+ #include "main/src/assets/font/font_defines.h"
+#include "ui/channel_battery_information_page.h"
+#include "components/custom_chart/custom_chart.h"
+
 #include <stdio.h> // 添加此行以包含 printf 函数的声明
 #include "lv_conf.h"
 #include "lvgl/src/font/lv_font.h"// 包含中文字体头文件
 #include "../../../lvgl_private.h"
 
-#include "c.h"
-#include "ui/channel_battery_information_page.h"
+
+
 
 
 #include "asserts/font/lv_font_sourcehan_sans_bhw_16.c"
@@ -290,19 +296,19 @@ static AutoCharging_t	g_tAutoCharging;
  *   GLOBAL FUNCTIONS
  **********************/
 
-//检查实际内存使用,输出内存占用率和内存碎片率
-void mem_monitor() {
-    lv_mem_monitor_t mon;
-    lv_mem_monitor(&mon);
-    printf("Used: %zu/%zu (%.1f%%), Frag: %u%%\n", 
-           mon.total_size - mon.free_size, 
-           mon.total_size,
-           (mon.total_size - mon.free_size) * 100.0 / mon.total_size,
-           mon.frag_pct); 
-}
-// 打印更详细的内存信息
-//实际可用内存 = 配置的LV_MEM_SIZE - 对齐填充 - 管理头开销
-void detailed_mem_monitor() {
+// //检查实际内存使用,输出内存占用率和内存碎片率
+// void mem_monitor() {
+//     lv_mem_monitor_t mon;
+//     lv_mem_monitor(&mon);
+//     printf("Used: %zu/%zu (%.1f%%), Frag: %u%%\n", 
+//            mon.total_size - mon.free_size, 
+//            mon.total_size,
+//            (mon.total_size - mon.free_size) * 100.0 / mon.total_size,
+//            mon.frag_pct); 
+// }
+// // 打印更详细的内存信息
+// //实际可用内存 = 配置的LV_MEM_SIZE - 对齐填充 - 管理头开销
+static void detailed_mem_monitor() {
     lv_mem_monitor_t mon;
     lv_mem_monitor(&mon);
     
@@ -319,8 +325,13 @@ void detailed_mem_monitor() {
 void c(void)
 {
     init_style();
-
     lv_obj_set_style_bg_color(lv_scr_act(), CONTENT_BG, LV_PART_MAIN);
+
+    //使屏幕背景完全透明, 当鼠标移动时，LVGL 的默认脏矩形刷新（Dirty Rectangle Rendering）可能无法正确检测到需要重绘的区域，导致鼠标轨迹残留
+    //某些 LVGL 模拟器,（如 SDL）依赖 鼠标事件 来触发屏幕更新，透明背景可能导致事件传递异常
+    //某些 LVGL 模拟器,（如 lv_sim_sdl）在透明背景 下可能不会强制刷新整个屏幕，导致鼠标移动时的像素残留
+    // lv_obj_add_style(lv_scr_act, &list_item_style, 0);
+
 
 
     task_page_create();
@@ -840,23 +851,20 @@ void play_btn_event_handler(lv_event_t* e) {
     }
 }
 
-#define CANVAS_WIDTH  211
-#define CANVAS_HEIGHT  90
+// static void timer_cb(lv_timer_t* timer) {
 
-static void timer_cb(lv_timer_t* timer) {
-
-    lv_obj_t *chart = timer->user_data;
-    my_chart_data_t *data = lv_obj_get_user_data(chart);
+//     lv_obj_t *chart = timer->user_data;
+//     my_chart_data_t *data = lv_obj_get_user_data(chart);
     
-    // 生成随机数据
-    lv_coord_t new_points[5];
-    for(int i = 0; i < 5; i++) {
-        new_points[i] = 10 + (lv_rand(0, 100) % 90);
-    }
+//     // 生成随机数据
+//     lv_coord_t new_points[5];
+//     for(int i = 0; i < 5; i++) {
+//         new_points[i] = 10 + (lv_rand(0, 100) % 90);
+//     }
     
-    my_chart_set_points(chart, new_points, 5);
+//     my_chart_set_points(chart, new_points, 5);
 
-}
+// }
 static void add_tile3(lv_obj_t * parent){
     // char * labs[9] = {"镍氢", "00:00:00", "100%", "9999mAh", "4.20V", "1.01A", "56mΩ", "45°C, 100°F", "9999Wh"};
     int h = 9 * lv_obj_get_height(parent) / 100;
@@ -893,7 +901,7 @@ static void add_tile3(lv_obj_t * parent){
 
     lv_obj_t * title_label = lv_label_create(tage_title);
     lv_label_set_text(title_label, "UOLTAGE" );
-    lv_obj_set_style_text_font(title_label, (lv_font_t *)&font_04B_20_8, 0);
+    // lv_obj_set_style_text_font(title_label, (lv_font_t *)&font_04B_20_8, 0);
     lv_obj_align(title_label, LV_ALIGN_LEFT_MID, 10, 0);
 
     lv_obj_t * tage_left = lv_obj_create(tage);
@@ -920,7 +928,7 @@ static void add_tile3(lv_obj_t * parent){
 
 
 // 创建图表
-lv_obj_t *chart = my_chart_create(tage);
+// my_chart_create(tage);
 
 
     play_btn = lv_btn_create(parent);
@@ -939,7 +947,7 @@ lv_obj_t *chart = my_chart_create(tage);
     lv_obj_t * center_label = lv_label_create(play_btn);
     lv_label_set_text(center_label, "完成Ω");
     lv_obj_set_style_text_color(center_label, lv_color_black(), 0);
-    lv_obj_set_style_text_font(center_label, (lv_font_t *)&font_isdtyahei_18, 0);
+    // lv_obj_set_style_text_font(center_label, (lv_font_t *)&font_isdtyahei_18, 0);
     lv_obj_center(center_label);
     
     lv_obj_t * right_img = lv_img_create(play_btn);
@@ -959,6 +967,7 @@ static void task_page_create(){
     lv_obj_t * tv = lv_tileview_create(lv_scr_act());
     lv_obj_add_style(tv, &list_item_style, 0);
     lv_obj_set_scrollbar_mode(tv, LV_SCROLLBAR_MODE_OFF);
+
 
     // tile1 = lv_tileview_add_tile(tv, 0, 0, (lv_dir_t)(LV_DIR_RIGHT | LV_DIR_BOTTOM)); // Tile1: 只能向右滑到 Tile2
     // tile2 = lv_tileview_add_tile(tv, 1, 0, (lv_dir_t)(LV_DIR_LEFT | LV_DIR_RIGHT));

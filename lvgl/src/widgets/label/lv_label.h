@@ -117,6 +117,7 @@ void lv_label_set_long_mode(lv_obj_t * obj, lv_label_long_mode_t long_mode);
 
 /**
  * Set where text selection should start
+ * 配合 lv_label_set_text_selection_end() 一起使用，高亮显示标签文本中的某一部分
  * @param obj       pointer to a label object
  * @param index     character index from where selection should start. `LV_LABEL_TEXT_SELECTION_OFF` for no selection
  */

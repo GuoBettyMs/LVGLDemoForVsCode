@@ -83,8 +83,12 @@ int main(int argc, char **argv)
   #if LV_USE_OS == LV_OS_NONE
  
   //lv_demo_widgets();
+
+
   //c();
-  init_ui();
+
+  //battery_info_desk_create();
+  init_ui(); //gnx main
 
 
   while(1) {
