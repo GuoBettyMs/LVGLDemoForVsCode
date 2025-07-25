@@ -5,7 +5,10 @@
 
 /*********************
  *      INCLUDES *********************/
+
 #include <stdio.h> // 添加标准IO头文件,用于调用 LV_LOG_USER、 printf
+#include "lvgl/lvgl.h"
+// #include "../../../lvgl_private.h" // 调用 lv_draw_triangle_dsc_t
 #include "custom_chart.h"
 
 /*********************

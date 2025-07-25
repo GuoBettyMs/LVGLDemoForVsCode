@@ -531,7 +531,7 @@
 #define LV_USE_MATRIX           1
 
 /** Include `lvgl_private.h` in `lvgl.h` to access internal data and functions by default */
-#define LV_USE_PRIVATE_API      0
+#define LV_USE_PRIVATE_API      1
 
 /*==================
  *   FONT USAGE

@@ -10,8 +10,8 @@
  *      INCLUDES
  *********************/
 
-#include "lvgl/lvgl.h"
-#include "../../../lvgl_private.h" // 调用 lv_draw_triangle_dsc_t
+// #include "lvgl/lvgl.h"
+// #include "../../../lvgl_private.h" // 调用 lv_draw_triangle_dsc_t
 
 /*********************
  *      DEFINES
@@ -35,7 +35,7 @@ typedef enum{
 } custom_chart_color_t;
 
 // Define timer callback type
-typedef void (*chart_timer_cb_t)(lv_timer_t* my_chart_timer);  
+typedef void (*chart_timer_cb_t)(lv_timer_t* my_chart_timer);   //使用了前向声明
 
 
 /**********************

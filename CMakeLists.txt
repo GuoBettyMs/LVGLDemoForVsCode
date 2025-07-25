@@ -80,6 +80,7 @@ set(FONT_SOURCES
     ${PROJECT_SOURCE_DIR}/main/src/assets/font/font_bahnschrift_18.c
     ${PROJECT_SOURCE_DIR}/main/src/assets/font/font_isdtyahei_18.c
     ${PROJECT_SOURCE_DIR}/main/src/assets/font/font_isdtyahei_20.c
+    
     # 添加更多字体...
 )
 if(USE_FREERTOS)
@@ -101,8 +102,7 @@ message(STATUS "PROJECT_SOURCE_DIR = ${PROJECT_SOURCE_DIR}")
         ${PROJECT_SOURCE_DIR}/main/src/ui/gnx/page/page_setting.c
         ${PROJECT_SOURCE_DIR}/main/src/ui/gnx/page/page_info.c
         ${PROJECT_SOURCE_DIR}/main/src/ui/gnx/gnx_main.c
-        ${PROJECT_SOURCE_DIR}/main/src/ui/gnx/strings.c
-        ${PROJECT_SOURCE_DIR}/main/src/ui/gnx/strings/en.c
+        ${PROJECT_SOURCE_DIR}/main/src/assets/language/language.c
         ${PROJECT_SOURCE_DIR}/main/src/c.c
         ${PROJECT_SOURCE_DIR}/main/src/main.c
         ${PROJECT_SOURCE_DIR}/main/src/mouse_cursor_icon.c
