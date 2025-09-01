@@ -51,6 +51,7 @@ Language_TypeDef getCurrentLanguage(void) {
     return currentLanguage;
 }
 
+//0中文, 1英文
 void setCurrentLanguage(Language_TypeDef lang) {
 
     if (lang >= 0 && lang < LANGUAGE_MAX){
