@@ -10,60 +10,64 @@
  extern "C" {
 #endif
 
-
 #include <stdint.h>
 #include <stdbool.h>
-#include "language_config.h"
+//#define   LAN_LATIN_ONLY
+
+
+#define   LAN_CHINAC_EN             //简体中�?
+#define   LAN_ENGLISH_EN            //英文
+#define	  LANGUAGE_NUMBERS      2
+
+enum LanguageFlg_t
+{
+    LANGUAGE_ENABLE_FLG_EN = (1 << 0),
+    LANGUAGE_ENABLE_FLG_CN = (1 << 1),
+
+};
+
+enum Language_TypeDef
+{
+	LANGUAGE_EN = 0,
+	LANGUAGE_CN,
+
+};
 
 typedef enum
 {
     #define STR_ID
-    #include "StrDefines.h"
-    STR_MAX // 自动成为最大值
-    #undef STR_ID
-}StringID;
+    #include "str_define.h"
+}LanguageString_t;
 
-typedef enum {
-    #if LANG_CHINAC_USE
-    LANGUAGE_CN,  // 中文ID
-    #endif
 
-    #if LANG_ENGLISH_USE
-    LANGUAGE_EN,  // 英文ID
-    #endif
-
-	LANGUAGE_FCN,
-	// LANGUAGE_JPN,
-	// LANGUAGE_GER,
-	// LANGUAGE_FRE,
-    // LANGUAGE_SPA,
-	// LANGUAGE_ITA,
-	LANGUAGE_MAX,
-}Language_TypeDef;
-
- // 声明嵌套字符串表
 extern const char **StringTable[];
-
-
-/**
- * 获取当前语言
- */
-Language_TypeDef getCurrentLanguage(void);
-
-/**
- * 获取当前语言的字符串
- */
-const char* getLocalString(StringID id);
-
-
-/**
- * 设置当前语言
- */
-void setCurrentLanguage(Language_TypeDef lang);
-
+const char * GetLanguageString(unsigned int StringId);
 
 #ifdef __cplusplus
- }/*extern "C"*/
+ extern "C" {
+#endif
+
+void VerifyLanguageSet(void);
+uint32_t GetSystemLanguageSupportsFLg(void);
+bool SetLanguageSupports(uint32_t LanguageFlg);
+uint32_t GetLanguageSupportsNumbers(void);
+uint32_t GetCurLanguageNumbers(void);
+uint32_t GetLanguageSupports(void);
+	 
+/**
+* 获取当前语言
+*/	 
+const uint8_t GetCurrentLanguage();
+	 
+/**
+* 设置当前语言
+*/	 
+void SetCurrentLanguage(uint8_t lang); 
+
+#ifdef __cplusplus
+ }
 #endif
  
-#endif  /*LANGUAGE_H*/
+#endif
+
+

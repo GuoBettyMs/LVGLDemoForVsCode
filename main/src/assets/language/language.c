@@ -8,91 +8,147 @@
 #include <stdio.h> // 添加此行以包含 printf 函数的声明
 #include "language.h"
 
-Language_TypeDef currentLanguage = LANGUAGE_EN;
 
-#if LANG_ENGLISH_USE
-#undef stringTableEn
-static const char *stringTableEn[] = {
+#ifndef NULL
+#define NULL 0
+#endif
+
+#define StringTableCn                NULL
+
+
+
+static const char *StringTableEn[] = {
     #define STR_EN
-    #include "StrDefines.h"
-    #undef STR_EN
+    #include "str_define.h"
 };
-#endif
-
-#if LANG_CHINAC_USE
-#undef stringTableCn
-static const char *stringTableCn[] = {
+//
+//简体中文
+//
+#ifdef LAN_CHINAC_EN
+#undef StringTableCn
+static const char *StringTableCn[] = {
     #define STR_CN
-    #include "StrDefines.h"
-    #undef STR_CN
+    #include "str_define.h"
 };
 #endif
 
-//顺序、长度需与 Language_TypeDef 一致
-const char **stringTable[] =
+
+const char **StringTable[] =
 {
-    #if LANG_CHINAC_USE
-    stringTableCn,
-    #endif
-
-    #if LANG_ENGLISH_USE
-    stringTableEn,
-    #endif
-
-    NULL,// stringTableFCn,
-	// stringTableJPN,
-	// stringTableGER,
-	// stringTableFRE,
-    // stringTableSPA,
-	// stringTableITA,
+    StringTableEn,
+	StringTableCn,
 };	
 
-Language_TypeDef getCurrentLanguage(void) {
-    return currentLanguage;
+
+
+uint8_t ucLaguageIndex = LANGUAGE_EN;
+
+// 设置当前语言
+void SetCurrentLanguage(uint8_t lang) {
+    if (lang < LANGUAGE_NUMBERS) {
+        ucLaguageIndex = lang;
+        VerifyLanguageSet();
+    }
 }
 
-//0中文, 1英文
-void setCurrentLanguage(Language_TypeDef lang) {
-
-    if (lang >= 0 && lang < LANGUAGE_MAX){
-        currentLanguage = lang;
-    }else{
-        printf("ERROR: Invalid language %d\n", lang);
-        // lang = LANGUAGE_EN; // 默认回退英文
-    }
-    
+const uint8_t GetCurrentLanguage() {
+    return ucLaguageIndex;
 }
 
 
-const char* getLocalString(StringID id) {
-    // 参数校验
-    if (id < 0 || id >= STR_MAX) {
-        printf("ERROR: Invalid string ID %d\n", id);
-        return "INVALID ID";
+
+const char * GetLanguageString(unsigned int StringId)
+{
+    const char *pMsg = "";
+
+    if(ucLaguageIndex>= LANGUAGE_NUMBERS)
+    {
+        ucLaguageIndex = (uint32_t)LANGUAGE_EN;
     }
 
-    Language_TypeDef lang = getCurrentLanguage();
-    printf("Debug: id=%d, lang=%d\n", id, lang);
-
-    // 语言表校验
-    if (lang < 0 || lang >= LANGUAGE_MAX) {
-        printf("ERROR: Invalid language %d\n", lang);
-        return "LANG_UNAVAILABLE";
+    if(ucLaguageIndex < LANGUAGE_NUMBERS)
+    {
+        if(NULL != StringTable[LANGUAGE_ENABLE_FLG_EN])
+        {
+            //valild ID
+            if(StringId < sizeof(StringTableEn) / sizeof(const char *))
+            {
+                pMsg = StringTable[ucLaguageIndex][StringId];
+            }
+        }
     }
-
-    const char** currentTable = stringTable[lang];
-    if (!currentTable) {
-        printf("ERROR: Language table %d not loaded\n", lang);
-        return "TABLE MISSING";
-    }
-
-    // 字符串存在性检查
-    if (!currentTable[id]) {
-        printf("WARNING: No text for ID %d in lang %d\n", id, lang);
-        return "TEXT MISSING";
-    }
-
-    return currentTable[id];
+    return(pMsg);
 }
 
+// 获取系统支持的语言标志
+uint32_t GetSystemLanguageSupportsFLg(void)
+{
+    uint32_t LanFlg;
+
+    LanFlg = LANGUAGE_ENABLE_FLG_EN;
+	
+#ifdef   LAN_CHINAC_EN           //寰疯
+    LanFlg |= LANGUAGE_ENABLE_FLG_CN;
+#endif	
+    return(LanFlg);
+}
+
+// 验证并确保语言设置有效
+void VerifyLanguageSet(void)
+{
+    uint32_t i;
+    uint32_t EnableLanguageIndex;
+    int32_t CurLanguageIndex;
+
+    EnableLanguageIndex = 0;
+    CurLanguageIndex = -1;
+
+    (void)i;
+    (void)EnableLanguageIndex;
+    (void)CurLanguageIndex;
+//    for(i=0;i < LANGUAGE_NUMBERS;i++)
+//    {
+//        if(g_LVGUIPara.LanguageEnableFlg & (1 << i))
+//        {
+//            EnableLanguageIndex = i;
+//
+//            if(i == g_LVGUIPara.LaguageIndex)
+//            {
+//                CurLanguageIndex = i;
+//            }
+//        }
+//    }
+
+    if(-1 == CurLanguageIndex)
+    {
+//        if(g_LVGUIPara.LanguageEnableFlg & LANGUAGE_ENABLE_FLG_EN)
+//        {
+//            g_LVGUIPara.LaguageIndex = LANGUAGE_EN;
+//        }
+//        else
+//        {
+//            g_LVGUIPara.LaguageIndex = EnableLanguageIndex;
+//        }
+    }
+}
+
+
+// 获取支持的语言数量
+uint32_t GetCurLanguageNumbers(void)
+{
+    uint32_t i;
+    uint32_t Numbers;
+
+    Numbers = 0;
+    (void)i;
+//    for(i=0;i < LANGUAGE_NUMBERS;i++)
+//    {
+//        if(g_LVGUIPara.LanguageEnableFlg & (1 << i))
+//        {
+//            Numbers++;
+//        }
+//    }
+
+    return(Numbers);
+}
 

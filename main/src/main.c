@@ -17,9 +17,8 @@
 #include "lvgl/demos/lv_demos.h"
 #include "glob.h"
 
-#include "ui/gnx/gnx_main.h"
-#include "c.h"
-#include "ui/channel_battery_information_page.h"
+
+#include "ui_desks/n8evo/page_main.h"
 
 /*********************
  *      DEFINES
@@ -78,17 +77,13 @@ int main(int argc, char **argv)
 
   /*Initialize the HAL (display, input devices, tick) for LVGL*/
   // hal_init(320, 480);
-  hal_init(240, 320);
+  hal_init(320, 240);
 
   #if LV_USE_OS == LV_OS_NONE
  
-  //lv_demo_widgets();
+  // lv_demo_widgets();
+  page_create_v2();
 
-
-  //c();
-
-  //battery_info_desk_create();
-  init_ui(); //gnx main
 
 
   while(1) {
