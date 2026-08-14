@@ -5,13 +5,6 @@
 
 #include "page_main.h"
 
-
-// #include "ChartProcess.h"
-
-// extern lv_group_t * btn_group;
-
-
-
 #define MAX_BATT_COM_COUNT 4 //电池仓总数,从0开始
 #define MAX_BOTTOM_BTN_COUNT 4 //底部按钮总数
 
@@ -32,6 +25,7 @@
 
 
 static void bar_page_create();
+static void on_language_changed();
 
 /***********************  公共变量 **********************/
 static uint8_t selected_settingrow_group_index = 1; //设置行组的索引
@@ -517,47 +511,6 @@ void lv_delete_layout(lv_obj_t **layout)
     }
 }
 
-/**********************
- *   系统设置
- **********************/
-
-void on_language_changed(){
-
-    // if (current_lang ==  GetCurrentLanguage()) return; // 语言没变，不处理
-
-    SetCurrentLanguage(GetCurrentLanguage() == LANGUAGE_CN ? LANGUAGE_EN : LANGUAGE_CN);
-    current_lang = GetCurrentLanguage();
-
-    printf("current_lang= %d, GetCurrentLanguage()= %d\n", current_lang, GetCurrentLanguage());
-
-
-    // // int battI = GET_BATT_INDEX(selected_batt_comp_idx, info_selected_arc_comp_idx);
-
-    // // //更新子列表: 1, 2, 3, 5
-    // // update_item_list_value(1);
-    // // update_item_list_value(2);
-    // // update_item_list_value(3);
-    // // update_item_list_value(5);
-
-    // for (int row = 0; row < MAX_SETTING_ROW_COUNT; row++) {
-    //     //标题
-    //     if (!lv_obj_has_flag(setting_rows[row].row_cont, LV_OBJ_FLAG_HIDDEN)){
-    //         lv_label_set_text(setting_rows[row].title_label, GetLanguageString(setting_row_titles[row]));
-    //     //    lv_label_set_text(setting_rows[row].test_label, GetLanguageString(setting_row_titles[row]));
-    //     }
-
-    //     // value 
-    //     if (row > 0 && row < MAX_SETTING_ROW_COUNT - 1 ) {
-    //         lv_label_set_text(setting_rows[row].test_label, GetLanguageString(setting_row_titles[row]));
-    //          lv_label_set_text(setting_rows[row].value_label, GetLanguageString(setting_row_titles[row]));
-    //         // int item_idx = g_batt_data[battI].setting_items[row - 1];
-    //         // update_setting_row_value(row, item_idx);
-    //     }
-    // }
-  
-}
-
-
 
 
 /**********************
@@ -910,7 +863,6 @@ static void refresh_setting_row_visibility(void) {
 
     printf("refresh_setting_row_visibility battI = %d, type = %d, task = %d, visible_count= %d\n", battI, battery_type, task, visible_count);
 
-    
     // 3. 遍历可见行列表，设置为可见
     for (int i = 0; i < visible_count; i++) {
         int row = visible_rows[i];
@@ -926,8 +878,17 @@ static void refresh_setting_row_visibility(void) {
 
     // 更新所有设置行的值（只更新可见行）
     for (int row = 1; row < MAX_SETTING_ROW_COUNT - 1; row++) {
-        int array_idx = row - 1;
-        int data = g_batt_data[battI].setting_items[array_idx];
+        int data;
+        if (row == 6)
+        {
+            data = 100;     //放电电流
+        }else if (row == 7)
+        {
+            data = 5;       //循环次数
+        }else
+        {
+            data = g_batt_data[battI].setting_items[row - 1];
+        }
         update_setting_row_value(row, data);
     }
 
@@ -971,17 +932,34 @@ static int get_task_list_idx(int row)
         idx = (data->setting_items[4] - option_ids[0]) / 100;
     }
     else if(row == SET_DISCHG_CURRENT)
-    {
+    {  //可能情况: 初始值 data->setting_items[5] = 0,而 option_ids[0] = 100, idx = -1
         const uint16_t* option_ids = get_current_setting(ttDischarge,g_current_layout);
         idx = (data->setting_items[5] - option_ids[0]) / 100;
     }
     else if(row == SET_CYC)
-    {
+    {  ////可能情况: 初始值 data->setting_items[6] = 0,而 tasksetting_display_rows[row].sub_texts[0] = 5, idx = -1
         idx = (data->setting_items[6] -  tasksetting_display_rows[row].sub_texts[0]) / 5;
     }
-    return idx;
+    return idx == -1 ? 0 : idx;         //防呆
 }
 
+
+/**
+ * @brief  GUI 开发中, LVGL 的非阻塞定时器事件, 延时 100ms 再销毁子列表
+ */
+static void my_callback(lv_timer_t* timer)
+{
+
+    lv_obj_t* sub = setting_sublist[current_selected_taskrow_idx];
+    if (sub) {
+        printf("after lv_refr_now, sub  = NULL \n");
+        lv_obj_del(sub);
+        setting_sublist[current_selected_taskrow_idx] = NULL;
+    }
+    // 清除父按钮的选中样式
+    lv_obj_clear_state(setting_mainlist[current_selected_taskrow_idx].row_cont, LV_STATE_CHECKED);
+    current_selected_taskrow_idx = -1;
+}
 
 /**
  * @brief 子列表行点击事件
@@ -1002,14 +980,15 @@ static void child_click_cb(lv_event_t *e) {
         int current_selected_sub = get_task_list_idx(current_selected_taskrow_idx);     // 曾经选中的子项索引
         int clicked_sub_idx = (int)(intptr_t)lv_obj_get_user_data(child_btn);           // 当前点击的子项索引
 
-        printf("row(%d) child list olddata = %d, newdata = %d\n", 
-            current_selected_taskrow_idx, current_selected_sub, clicked_sub_idx);
+        // printf("row(%d) child list olddata = %d, newdata = %d\n", 
+        //     current_selected_taskrow_idx, current_selected_sub, clicked_sub_idx);
 
         // ====== 1. 如果点击已选中子项 → 仅折叠（删除） ======
         if (current_selected_sub == clicked_sub_idx) {
             lv_obj_t* sub = setting_sublist[current_selected_taskrow_idx];
             if (sub) {
-                lv_obj_del_async(sub);                                          // 异步删除，安全（事件回调中禁止同步删除）
+                printf("setting_sublist  = NULL \n");
+                lv_obj_del(sub);
                 setting_sublist[current_selected_taskrow_idx] = NULL;     // 立即置空，防止悬空
             }
             // 清除父按钮的选中样式
@@ -1148,15 +1127,22 @@ static void child_click_cb(lv_event_t *e) {
         // ====== 3. 选择后自动折叠（删除子容器） ======
         // 注意：子容器索引与父按钮索引，其实数值上一致
         lv_refr_now(lv_display_get_default());      //手动强制刷新
-        // vTaskDelay(100 / portTICK_PERIOD_MS);       //延时100ms
-        lv_obj_t* sub = setting_sublist[current_selected_taskrow_idx];
-        if (sub) {
-            lv_obj_del_async(sub);
-            setting_sublist[current_selected_taskrow_idx] = NULL;
-        }
-        // 清除父按钮的选中样式
-        lv_obj_clear_state(setting_mainlist[current_selected_taskrow_idx].row_cont, LV_STATE_CHECKED);
-        current_selected_taskrow_idx = -1;
+        // vTaskDelay(100 / portTICK_PERIOD_MS);    // RTOS 环境延时100ms
+
+        // lv_obj_t* sub = setting_sublist[current_selected_taskrow_idx];
+        // if (sub) {
+        //     printf("after lv_refr_now, sub  = NULL \n");
+        //     // lv_obj_del_async(sub);
+        //     lv_obj_del(sub);
+        //     setting_sublist[current_selected_taskrow_idx] = NULL;
+        // }
+        // // 清除父按钮的选中样式
+        // lv_obj_clear_state(setting_mainlist[current_selected_taskrow_idx].row_cont, LV_STATE_CHECKED);
+        // current_selected_taskrow_idx = -1;
+
+        //  GUI 开发中, LVGL 的非阻塞定时器事件
+        lv_timer_t * timer = lv_timer_create(my_callback, 100, NULL);
+        lv_timer_set_repeat_count(timer, 1);                            // 重复次数为 1，执行完自动删除
     }
 
 
@@ -1192,15 +1178,27 @@ void update_single_item_value(int setting_row_idx, lv_obj_t* label, int32_t ui_i
             snprintf(buf, sizeof(buf), "%s", GetLanguageString(option_ids[ui_idx]));
             break;
 
-        case SET_CURRENT: //3-Current, 5-charge_c
-        case SET_CHG_CURRENT:
-        case SET_DISCHG_CURRENT:
-            u16option_ids = get_current_setting(setting_row_idx, g_current_layout);
+        case SET_CURRENT://3-Current
+            u16option_ids = get_current_setting(status,g_current_layout);
             if (ui_idx == 0 && u16option_ids[0] == 0){
                 snprintf(buf, sizeof(buf), "%s", GetLanguageString(STR_AUTO));
             }else{
                 snprintf(buf, sizeof(buf), "%.2fA", ui_idx * 0.1f + u16option_ids[0] * 0.001f);
             }
+            break;
+
+        case SET_CHG_CURRENT: //5-charge_c
+            u16option_ids = get_current_setting(ttCharge,g_current_layout);
+            if (ui_idx == 0 && u16option_ids[0] == 0){
+                snprintf(buf, sizeof(buf), "%s", GetLanguageString(STR_AUTO));
+            }else{
+                snprintf(buf, sizeof(buf), "%.2fA", ui_idx * 0.1f + u16option_ids[0] * 0.001f);
+            }
+            break;
+
+        case SET_DISCHG_CURRENT: //6-discharge_c
+            u16option_ids = get_current_setting(ttDischarge,g_current_layout);
+            snprintf(buf, sizeof(buf), "%.2fA", ui_idx * 0.1f + u16option_ids[0] * 0.001f);
             break;
 
         case SET_CONDITION://Condition
@@ -1211,8 +1209,6 @@ void update_single_item_value(int setting_row_idx, lv_obj_t* label, int32_t ui_i
                     snprintf(buf, sizeof(buf), "%.2fV", (u16option_ids[0] + 10 * ui_idx) / 1000.0f);
                 else
                     snprintf(buf, sizeof(buf), "-\u2206%" PRId32 "mV", (u16option_ids[0] + ui_idx));
-
-                // lv_label_set_text(label, buf);
             }               
             break;
 
@@ -1388,9 +1384,6 @@ static lv_obj_t* create_sublist(int row_i){
         LV_FLEX_ALIGN_CENTER              // 交叉轴(ROW): 子项整体在容器内垂直居中     
     );
 
-    // 子容器初始无选中索引
-    lv_obj_set_user_data(sub_container, (void*)(intptr_t)-1); 
-
     for (int child_i = 0; child_i < length; child_i++) {
         setting_row_widgets_t child_btn = create_setting_row(sub_container, false);
         lv_obj_add_flag(child_btn.title_img, LV_OBJ_FLAG_HIDDEN);
@@ -1402,11 +1395,11 @@ static lv_obj_t* create_sublist(int row_i){
         }
  
         //高亮已选中索引
-        if (child_i == current_selected){ 
+        if (child_i == current_selected && child_btn.row_cont)
+        { 
             lv_obj_add_state(child_btn.row_cont, LV_STATE_CHECKED);
             lv_obj_scroll_to_view(child_btn.row_cont, LV_ANIM_OFF);                  //滚动定位
         }
-
 
         lv_obj_set_user_data(child_btn.row_cont, (void*)(intptr_t)child_i);          //保存每个子项的对应索引
         lv_obj_add_event_cb(child_btn.row_cont, child_click_cb, LV_EVENT_ALL, NULL);
@@ -1430,15 +1423,12 @@ static void row_click_event_cb(lv_event_t *e)
 
     if(code == LV_EVENT_CLICKED)
     {
-        printf("current_selected_taskrow_idx = %d, row_i = %d\n", current_selected_taskrow_idx, row_i);
-
-
+        // printf("current_selected_taskrow_idx = %d, row_i = %d\n", current_selected_taskrow_idx, row_i);
         // ---------- 1. 点击的是当前展开的行 → 删除子列表 ----------
         if (current_selected_taskrow_idx == row_i) {
             lv_obj_t* sub = setting_sublist[current_selected_taskrow_idx];
             if (sub) {
-                // 异步删除，安全（事件回调中禁止同步删除）
-                lv_obj_del_async(sub);
+                lv_obj_del(sub);
                 setting_sublist[current_selected_taskrow_idx] = NULL;  // 立即置空，防止悬空
             }
             // 清除父按钮的选中样式
@@ -1458,7 +1448,7 @@ static void row_click_event_cb(lv_event_t *e)
             // 删除旧的子容器
             lv_obj_t* old_sub = setting_sublist[current_selected_taskrow_idx];
             if (old_sub) {
-                lv_obj_del_async(old_sub);
+                lv_obj_del(old_sub);
                 setting_sublist[current_selected_taskrow_idx] = NULL;
             }
         }
@@ -1469,7 +1459,7 @@ static void row_click_event_cb(lv_event_t *e)
 
         // 若意外非空（比如异步删除尚未完成），先强制删除再重建（但通常不会发生）
         if (new_sub) {
-            lv_obj_del_async(new_sub);
+            lv_obj_del(new_sub);
             setting_sublist[row_i] = NULL;
             new_sub = NULL;
         }
@@ -1497,7 +1487,8 @@ static void back_event_cb(lv_event_t *e)
     if (code == LV_EVENT_CLICKED)
     {
         printf("back last page, last bar idx = %d \n", current_selected_bar_idx);
-        bar_page_create();
+        // bar_page_create();
+        on_language_changed();
     }
 
 }
@@ -1583,6 +1574,46 @@ void setting_page_create(){
 
     refresh_setting_row_visibility();
 
+}
+
+
+/**********************
+ *   系统设置
+ **********************/
+
+ /**
+ * @brief 切换语言
+ */
+static void on_language_changed(){
+
+    // if (current_lang ==  GetCurrentLanguage()) return; // 语言没变，不处理
+
+    SetCurrentLanguage(GetCurrentLanguage() == LANGUAGE_CN ? LANGUAGE_EN : LANGUAGE_CN);
+    current_lang = GetCurrentLanguage();
+
+    printf("current_lang= %d, GetCurrentLanguage()= %d\n", current_lang, GetCurrentLanguage());
+
+    int battI = GET_BATT_INDEX(current_selected_batt_comp_idx, current_selected_bar_idx);
+    for (int row = 0; row < MAX_SETTING_ROW_COUNT; row++) {
+        //标题
+        const char* main_display = GetLanguageString(tasksetting_display_rows[row].main_text);
+        lv_label_set_text(setting_mainlist[row].title_label, main_display);
+        
+        // value 
+        if (row == 1 || row == 2 || row == 3 || row == 5 || row == 6 || row == 7)       //1-电池类型, 2-任务, 3-电流, 5-充电电流, 6-放电电流, 7-循环次数
+        {
+            int item_idx = g_batt_data[battI].setting_items[row - 1];                   //0-电池类型, 1-任务, 2-电流, 4-充电电流, 5-放电电流, 6-循环次数
+            if (row == 6)
+            {
+                item_idx = 100;     //放电电流
+            }else if (row == 7)
+            {
+                item_idx = 5;       //循环次数
+            }
+            update_setting_row_value(row, item_idx);
+        }
+    }
+  
 }
 
 
@@ -2426,9 +2457,9 @@ void page_create_v2(void){
     
     // printf("Screen W:%ld, H:%ld\n", lv_obj_get_width(lv_scr_act()), lv_obj_get_height(lv_scr_act()));
 
-info_page_create(0);
+// info_page_create(0);
     // stanby_page_create();
     // bar_page_create();
-    // setting_page_create();
+    setting_page_create();
 
 }

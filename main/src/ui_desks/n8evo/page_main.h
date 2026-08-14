@@ -18,14 +18,11 @@ extern "C" {
 #include "lvgl.h"
 
 #include "../../common.h"
-#include "User_communication.h"
 #include "img/image_defines.h"
 
-// #include "src/misc/lv_timer_private.h"
-// #include "src/misc/lv_types.h"
+#include "User_communication.h"
+#include "chart_process.h"           //嵌入式图表
 
-
-// #include "../User_communication.h"
 
 // typedef struct {
 //     uint8_t slave_device_count; //识别到内部电池的工作仓数量
