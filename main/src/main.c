@@ -85,7 +85,6 @@ int main(int argc, char **argv)
   page_create_v2();
 
 
-
   while(1) {
           
     /* Periodically call the lv_task handler.

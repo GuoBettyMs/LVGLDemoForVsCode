@@ -28,8 +28,54 @@ extern "C" {
 #endif
 
 
+
 // 声明图像描述符
-//实体键菜单
+LV_IMAGE_DECLARE(img_small_charge);
+LV_IMAGE_DECLARE(img_small_cycle);
+LV_IMAGE_DECLARE(img_small_error);
+LV_IMAGE_DECLARE(img_small_none);
+
+LV_IMAGE_DECLARE(img_bar_none);
+LV_IMAGE_DECLARE(img_bar_charge);
+LV_IMAGE_DECLARE(img_bar_cycle);
+LV_IMAGE_DECLARE(img_bar_error);
+LV_IMAGE_DECLARE(img_bar_setting);
+LV_IMAGE_DECLARE(img_bar_discharge);
+LV_IMAGE_DECLARE(img_bar_storage);
+LV_IMAGE_DECLARE(img_bar_activate);
+LV_IMAGE_DECLARE(img_bar_analyse);
+LV_IMAGE_DECLARE(img_bar_destory);
+LV_IMAGE_DECLARE(img_1);
+LV_IMAGE_DECLARE(img_2);
+LV_IMAGE_DECLARE(img_3);
+LV_IMAGE_DECLARE(img_4);
+LV_IMAGE_DECLARE(img_A);
+LV_IMAGE_DECLARE(img_B);
+
+
+LV_IMAGE_DECLARE(img_wifi);
+LV_IMAGE_DECLARE(img_mobile_con);
+LV_IMAGE_DECLARE(img_sound);
+LV_IMAGE_DECLARE(img_home_lock);
+LV_IMAGE_DECLARE(img_pause);
+LV_IMAGE_DECLARE(img_home_menu);
+LV_IMAGE_DECLARE(img_activate_chging);
+LV_IMAGE_DECLARE(img_home_unlock);
+LV_IMAGE_DECLARE(img_no_sound);
+LV_IMAGE_DECLARE(img_play);
+
+
+
+
+
+LV_IMAGE_DECLARE(img_arrow_back);
+LV_IMAGE_DECLARE(img_info_setting);
+LV_IMAGE_DECLARE(img_info_per);
+LV_IMAGE_DECLARE(img_info_chart);
+LV_IMAGE_DECLARE(img_info_mOhm);
+LV_IMAGE_DECLARE(img_info_mwh);
+
+// //实体键菜单
 LV_IMAGE_DECLARE(img_menu);
 LV_IMAGE_DECLARE(img_lock);
 LV_IMAGE_DECLARE(img_unlock);
@@ -61,7 +107,7 @@ LV_IMAGE_DECLARE(img_row4);
 //侧边栏
 LV_IMAGE_DECLARE(img_menu_1);
 
-//任务设置页面
+// //任务设置页面
 LV_IMAGE_DECLARE(img_right_arrow);
 LV_IMAGE_DECLARE(img_chemistry);
 LV_IMAGE_DECLARE(img_task_selection);
@@ -77,6 +123,7 @@ LV_IMAGE_DECLARE(img_task);
 //底部
 LV_IMAGE_DECLARE(img_small_left_arrow);
 LV_IMAGE_DECLARE(img_small_right_arrow);
+
 
 
 #ifdef __cplusplus

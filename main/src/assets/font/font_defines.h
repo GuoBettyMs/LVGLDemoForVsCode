@@ -29,12 +29,14 @@ extern "C" {
 #include "lvgl/lvgl.h"
 
 // 声明字体
-LV_FONT_DECLARE(font_04B_20_8);	
-LV_FONT_DECLARE(font_isdtyahei_20);	
-LV_FONT_DECLARE(font_isdtyahei_18);
-LV_FONT_DECLARE(font_bahnschrift_18);	
-LV_FONT_DECLARE(font_bahnschrift_20);	
+// LV_FONT_DECLARE(font_04B_20_8);	
+// LV_FONT_DECLARE(font_isdtyahei_20);	
+// LV_FONT_DECLARE(font_isdtyahei_18);
+// LV_FONT_DECLARE(font_bahnschrift_18);	
+// LV_FONT_DECLARE(font_bahnschrift_20);	
 
+LV_FONT_DECLARE(font_isdtyahei_18_2); //16
+LV_FONT_DECLARE(font_FUSION_PIXEL_PROPORTIONAL_12_2);
 
 #ifdef __cplusplus
 }

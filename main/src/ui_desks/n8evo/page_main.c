@@ -5,24 +5,6 @@
 
 #include "page_main.h"
 
-#define MAX_BATT_COM_COUNT 4 //电池仓总数,从0开始
-#define MAX_BOTTOM_BTN_COUNT 4 //底部按钮总数
-
-
-#define MAX_BATT_TOTAL_COUNT 36 //电池总数
-#define MAX_BATT_COM_CNT 6 //最大电池仓数,从0开始,横向放置2个电池或竖向放置4个电池
-#define MAX_BATT_CNT_IN_COM 6 //一个电池仓内部最大电池数,从0开始
-// #define MAX_HOR_BATT_CNT 2 //最大横向电池数
-#define MAX_VER_BATT_CNT 4 //最大纵向电池数
-#define MAX_INFO_MENU_COUNT 5
-#define MAX_INFO_ROW_COUNT 5 
-#define MAX_SETTING_ROW_COUNT 9 //含标题 "Task","启动"键
-#define MAX_SETTING_ITEM_ROW_COUNT 31
-#define LINE_CHART_DISPLAY_POINT 192
-
-
-#define GET_BATT_INDEX(comp_idx, bar_idx) (MAX_BATT_CNT_IN_COM * (comp_idx) + (bar_idx)) // 定义电池索引计算的宏
-
 
 static void bar_page_create();
 static void on_language_changed();
@@ -34,31 +16,6 @@ static bool btn_group_activate = 0;
 
 static uint8_t current_lang = LANGUAGE_EN;
 
-/***********************  电池数据结构**********************/
-typedef struct {
-    bool chg_setting;
-    bool is_compressed;
-    bool BatteryLoad;
-    eTaskState_t TaskState;
-    eBatteryType_t batt_type; // 电池类型，如 1:"Li-ion"
-    eTaskType_t work_status;      // 0:充电中,1:分析...
-    uint8_t value_percent;    // 电量百分比 (0-100)
-    int8_t value_tempc;
-    int16_t vol_mv;
-    int16_t cur_ma;
-    int16_t value_tempf;
-    uint16_t setting_items[7]; // 索引 0~6 对应：chemistry, task, current, condition , charge_c, discharge_c, cycle_cnt
-    uint16_t line_chart_init_data;
-    uint16_t line_chart_max_data;
-    uint16_t line_chart_min_data;
-    int16_t line_chart_data_total_cnt;
-    int32_t line_chart_data[LINE_CHART_DISPLAY_POINT]; //曲线数据
-    uint32_t time_s;
-    uint32_t value_mah;
-    uint32_t value_Ohms;
-    uint32_t value_mWh;
-} batt_data_t;
-
 static batt_data_t g_batt_data[MAX_BATT_TOTAL_COUNT];
 
 /***********************  样式 **********************/
@@ -68,51 +25,31 @@ static lv_style_t style_pressed; // 创建一个用于“按下状态”的样�
 static lv_style_t style_row_pressed; //行选中状态的样式变量
 static lv_style_t style_row_selected; //行“按下状态”的样式，以覆盖默认的灰色
 
+static lv_style_t style_child_btn_selected; //按钮选中状态的样式变量
+
+static lv_style_t style_text_selected;
+static lv_style_t style_img_selected;
+static lv_style_t style_menu_text_selected;
+static lv_style_t style_menu_img_selected;
 
 
 /**********************   进度条页面 **********************/
 
-typedef enum {
-    LAYOUT_VER = 0,
-    LAYOUT_HOR = 1,
-    LAYOUT_COUNT
-} layout_type_t;// 布局类型枚举
-
-typedef struct {
-    lv_obj_t* cont;                 // 容器
-    lv_obj_t* bar;                  // 进度条控件
-    lv_obj_t* workstatus_img;       // 工作状态图像
-    lv_obj_t* type_label;           // 类型标签
-    lv_obj_t* time_label;           // 时间标签
-    lv_obj_t* volcur_label;         // 电压电流标签
-    lv_obj_t* setting_img;          // 任务设置图标
-    lv_obj_t* info_arrow;
-} bar_components_t;
-
 /*变量*/
-static int current_selected_bar_idx = 0;     //当前选中的 bar 索引
+static int current_selected_bar_idx = -1;     //当前选中的 bar 索引，默认未选中,0-3: 纵向电池，4-5：横向电池
+static const int32_t battery_value_default[] = {STR_AUTO, STR_LIHV, STR_LILON, STR_LIFE, STR_NIZN, STR_NIMH, STR_1_5_LILON, 0};
 
 /*控件*/
-static layout_type_t g_current_layout = LAYOUT_VER; // 记录当前激活的是哪个布局,默认 LAYOUT_VER
 static lv_obj_t* bar_layout = NULL;   // 进度条总览容器
-static bar_components_t bar_conts[LAYOUT_COUNT][4]; // 全局二维数组：第一维是布局类型，第二维是进度条索引
+static batt_t bar_conts[LAYOUT_COUNT][4]; // 全局二维数组：第一维是布局类型，第二维是进度条索引 0-3: 纵向电池，0-1：横向电池
 
 
 /**********************   信息页面 **********************/
-typedef struct {
-    lv_obj_t *info_icon;          // 图标
-    lv_obj_t *info_name;    // 标签名称
-    lv_obj_t *info_value;   // 标签值
-} info_row_t;           // 信息行的控件集合
-
-
-typedef struct {
-    lv_obj_t *chart;
-    int battI;
-} chart_timer_data_t;       // 图表定时器结构体，包含图表对象和电池索引
 
 
 /*变量*/
+static info_row_t g_info_rows[LAYOUT_COUNT][5]; // 全局二维数组：第一维是布局类型，第二维是行索引
+static const lv_image_dsc_t* info_imgs[5] = {&img_arrow_back, &img_info_per, &img_info_chart, &img_info_mOhm, &img_info_mwh};
 static int32_t chart_y_max = 100;
 static int32_t chart_y_min = 0;
 static int32_t line_w = 2;
@@ -121,64 +58,13 @@ static int chart_max_w = 192;
 
 /*控件*/
 static lv_obj_t* info_layout = NULL;
-static info_row_t g_info_rows[LAYOUT_COUNT][5]; // 全局二维数组：第一维是布局类型，第二维是行索引
-
 static lv_obj_t* g_info_charts[LAYOUT_COUNT];
 static lv_chart_series_t* line_chart_ser = NULL;
 static lv_timer_t *info_chart_timer = NULL;
 
-/**********************  总览页面 **********************/
 
-/*变量*/
-static int current_selected_batt_comp_idx = 0; //当前选中的电池仓索引
-
-/*控件*/
-lv_obj_t* stanby_page_layout;
 
 /**********************  任务设置 **********************/
-
-typedef enum {
-    SET_CHEMISTRY = 1,
-    SET_TASK,    
-    SET_CURRENT,       
-    SET_CONDITION,    
-    SET_CHG_CURRENT, 
-    SET_DISCHG_CURRENT,
-    SET_CYC,
-    SET_START,
-    SET_COUNT
-} task_settingrow_type_t;   //任务设置行的每一项类型
-
-typedef struct {
-    lv_obj_t* row_cont;
-    lv_obj_t* title_img;
-    lv_obj_t* title_label;
-    lv_obj_t* value_label;
-    lv_obj_t* value_img;
-    lv_obj_t* line;
-} setting_row_widgets_t;    //任务设置页面的每一行的控件指针
-    
-typedef struct {
-    const lv_image_dsc_t* main_img;     // 图像指针
-    int32_t main_text;                 // 主项文本ID
-    int32_t sub_texts[10];             // 子项ID数组，以 -1 结尾
-} setting_row_display_t;    //设置行的全部显示内容
-
-
-// 定义任务值到字符串ID的映射
-static const struct {
-    int32_t value;
-    int32_t str_id;
-} task_value_to_strid[] = {
-    {0, STR_CHARGE},
-    {1, STR_DISCHARGE},
-    {2, STR_STORAGE},
-    {3, STR_CYCLE},
-    {4, STR_ANALYSE},
-    {5, STR_ACTIVATE},
-    {6, STR_DESTROY},  
-};
-
 
 /*变量*/
 static task_settingrow_type_t current_selected_taskrow_idx = -1; //当前所选设置行的索引,0-标题行
@@ -248,35 +134,112 @@ static const int32_t task_value[][7] =
 
 static const setting_row_display_t tasksetting_display_rows[] = 
 {
-    {&img_chemistry, STR_TASK, {-1}},
-    {&img_chemistry, STR_BATTERY, {STR_AUTO, STR_LIHV, STR_LIHV, STR_LIFE, STR_NIZN, STR_NIMH, STR_LIHV, -1}},
-    {&img_chemistry, STR_TASK_SELECTION, {task_value[2][0], -1}},
-    {&img_chemistry, STR_CURRENT, {chg_current_value[0][0], -1}},
-    {&img_condition, STR_CONDITION, {chg_conditon_value[0][0], -1}},
-    {&img_chemistry, STR_CHARGE_CURRENT, {chg_current_value[0][0], -1}},
-    {&img_chemistry, STR_DISCHARGE_CURRENT, {dischg_current_value[0][0], -1}},
-    {&img_chemistry, STR_CYCLES, {5, 10, 15, 20, 25, 30, -1}},
-    {&img_chemistry, STR_START, {-1}},
+    {&img_arrow_back, NULL, STR_TASK, -1, {-1}},
+    {&img_chemistry, NULL, STR_BATTERY, -1, {STR_AUTO, STR_LIHV, STR_LILON, STR_LIFE, STR_NIZN, STR_NIMH, STR_1_5_LILON, -1}},
+    {&img_task_selection, NULL, STR_TASK_SELECTION, -1, {task_value[2][0], -1}},
+    {&img_current_setting, NULL, STR_CURRENT, -1, {chg_current_value[0][0], -1}},
+    {&img_condition, NULL, STR_CONDITION, -1, {chg_conditon_value[0][0], -1}},
+    {&img_charge_current, NULL, STR_CHARGE_CURRENT, -1, {chg_current_value[0][0], -1}},
+    {&img_discharge_current, NULL, STR_DISCHARGE_CURRENT, -1, {dischg_current_value[0][0], -1}},
+    {&img_task_cycle, NULL, STR_CYCLES, -1, {5, 10, 15, 20, 25, 30, -1}},
+    {&img_start, NULL, STR_START_TASK, -1, {-1}},
 };//任务设置每行的显示内容,0-标题行
 
 
 
 /*控件*/
+lv_obj_t* setting_layout;
 static lv_obj_t* task_setting_text_cont;                                    // 任务主列表的内容行容器
-static lv_obj_t* setting_layout;                                                   // 任务设置容器
-static setting_row_widgets_t setting_mainlist[MAX_SETTING_ROW_COUNT];
-static lv_obj_t* setting_sublist[MAX_SETTING_ROW_COUNT] = {NULL};
+static setting_row_widgets_t setting_mainlist[MAX_SETTING_ROW_COUNT];       //父列表，内部每行由 create_setting_row 生成
+static lv_obj_t* setting_sub_container[MAX_SETTING_ROW_COUNT] = {NULL};     //子 layout ，内部有多行, 每行由 create_setting_row 生成
+static batt_t setting_bar_conts[LAYOUT_COUNT][4];                           // 全局二维数组：第一维是布局类型，第二维是进度条索引
 
 
-/**********************  系统设置 **********************/
+/**********************  总览页面 **********************/
+
+
+/*变量*/
+static int current_selected_batt_comp_idx = 0;      //当前选中的电池仓索引
+static int current_batt_com_cnt = 2;                //识别到的电池仓数量
+// 定义网格列描述数组（所有行共用）：LV_GRID_TEMPLATE_LAST 是必须的结尾标记
+static const lv_coord_t one_grid_dsc[] = {LV_GRID_FR(1), LV_GRID_TEMPLATE_LAST}; // 1行/列等高
+static const lv_coord_t three_grid_dsc[] = {LV_GRID_FR(1), LV_GRID_FR(1), LV_GRID_FR(1), LV_GRID_TEMPLATE_LAST};
+static const lv_coord_t two_grid_dsc[] = {LV_GRID_FR(1), LV_GRID_FR(1), LV_GRID_TEMPLATE_LAST}; // 2行/列等高
+static const lv_coord_t four_grid_dsc[] = {LV_GRID_FR(1), LV_GRID_FR(1), LV_GRID_FR(1), LV_GRID_FR(1), LV_GRID_TEMPLATE_LAST}; // 4行/列等宽
+
 
 
 /*控件*/
+lv_obj_t* stanby_page_layout;
+ui_data_t g_ui_data;
+static const setting_row_display_t stanby_display_btns[] = 
+{
+    {&img_no_sound, &img_sound, STR_SOUND, STR_SOUND,{-1}},
+    {&img_home_lock, &img_home_unlock, STR_LOCK, STR_UNLOCK, {-1}},
+    {&img_pause, &img_play, STR_PAUSE, STR_START, {-1}},
+    {&img_home_menu, &img_home_menu, STR_MENU, STR_MENU, {-1}}
+};
+
+static batt_components_t batt_coms[4];   //电池仓
+static lv_image_dsc_t* batt_idx_imgs[6] = {&img_1, &img_2, &img_3, &img_4, &img_A, &img_B};             //电池容器的布局
+static lv_obj_t* bottom_objs[5];
+
+
+/**********************  菜单设置 **********************/
+
+/*变量*/
+static task_settingrow_type_t current_selected_menu_idx = 0; //当前所选设置行的索引,0-标题行
+static int32_t menu_items_data[5]; //不含标题
+static const setting_row_display_t menu_display_rows[] = 
+{   
+    {&img_arrow_back, NULL, STR_MENU, -1, {-1}},
+    {&img_volume_high, NULL, STR_VOLUME, -1, {STR_OFF, STR_LOW, STR_MID, STR_HIG, -1}},
+    {&img_brightness, NULL, STR_BRIGHTNESS, -1, {STR_OFF, STR_LOW, STR_MID, STR_HIG, -1}},
+    {&img_theme, NULL, STR_LANGUAGE, -1, {STR_ENGLISH, STR_CHINESE, -1}},
+    {&img_capacitylimit, NULL, STR_CAPACITY_LIMIT, -1, {STR_OFF, STR_ON, -1}},
+    {&img_activate_chging, NULL, STR_ACTIVATE_CHARGING, -1, {STR_OFF, STR_ON, -1}},
+};  //每行的显示内容,0-标题行
+
+
+
+/*控件*/
+static lv_style_t style_menu_fade_normal;     /* 默认状态：不透明 + 带过渡 */
+static lv_style_t style_menu_transparent;     /* 自定义状态位 USER_1 状态：透明 */
+static bool  menu_fade_inited = false;
+
+static lv_style_t style_menu_slide_normal;      /* 默认：translate_x = 0 + transition */
+static lv_style_t style_menu_slide_from_right;   /* USER_2：translate_x = -W */
+static bool        menu_slide_from_right_inited = false;
+
+static lv_style_t style_menu_slide_normal;      /* 默认：translate_x = 0 + transition */
+static lv_style_t style_menu_slide_from_left;   /* USER_2：translate_x = -W */
+static bool        menu_slide_from_left_inited = false;
+
+static lv_style_t style_menu_slide_normal_y;      /* 默认：translate_x = 0 + transition */
+static lv_style_t style_menu_slide_from_bottom;   /* USER_2：translate_x = -W */
+static bool        menu_slide_from_bottom_inited = false;
+
+
+
+
+lv_obj_t* menu_layout;
+lv_obj_t* menu_text_cont;
+static setting_row_widgets_t menu_mainlist[MAX_MENU_ROW_COUNT];         //父列表，内部每行由 create_setting_row 生成
+static lv_obj_t* menu_sub_container[MAX_SETTING_ROW_COUNT] = {NULL};    //子 layout ，内部有多行, 每行由 create_setting_row 生成
+
 
 
 /**********************
  *   common methods
  **********************/
+
+ static int get_task_list_idx(int row);
+int get_sub_items_count(int row_idx);
+void stanby_page_create(void);
+static void bar_page_create();
+void task_setting_click_event_cb(lv_event_t* e);
+static void menu_child_click_cb(lv_event_t *e);
+
 
 // void btn_indev_group_remove_all_obj(void)
 // {
@@ -295,6 +258,201 @@ static lv_obj_t* setting_sublist[MAX_SETTING_ROW_COUNT] = {NULL};
 //     if(obj)
 //         lv_group_add_obj(btn_group, obj);
 // }
+
+
+/**
+ * @brief 删除对象
+ * @param layout 对象
+ */
+void lv_delete_layout(lv_obj_t **layout)
+{
+    if(*layout != NULL)
+    {
+        lv_obj_delete(*layout);
+        *layout = NULL;
+    }
+}
+
+
+/**
+ * @brief 从左往右平移
+ */
+static void menu_slide_from_left_init_once(void)
+{
+    if (menu_slide_from_left_inited) return;
+    menu_slide_from_left_inited = true;
+
+    static const lv_style_prop_t props_x[] = { LV_STYLE_TRANSLATE_X, LV_STYLE_PROP_INV };
+    static lv_style_transition_dsc_t trans_x;
+    lv_style_transition_dsc_init(&trans_x,
+                                 props_x,
+                                 lv_anim_path_ease_out,  /* 缓出曲线；不想要可传 NULL */
+                                 300, 0, NULL);
+
+    lv_style_init(&style_menu_slide_normal);
+    lv_style_set_translate_x(&style_menu_slide_normal, 0);
+    lv_style_set_transition(&style_menu_slide_normal, &trans_x);
+
+    lv_style_init(&style_menu_slide_from_left);
+    lv_style_set_translate_x(&style_menu_slide_from_left, 320);    //屏幕宽度320
+
+}
+
+/**
+ * @brief 从右往左平移
+ */
+static void menu_slide_from_right_init_once(void)
+{
+    if (menu_slide_from_right_inited) return;
+    menu_slide_from_right_inited = true;
+
+    static const lv_style_prop_t props_x[] = { LV_STYLE_TRANSLATE_X, LV_STYLE_PROP_INV };
+    static lv_style_transition_dsc_t trans_x;
+    lv_style_transition_dsc_init(&trans_x,
+                                 props_x,
+                                 lv_anim_path_ease_out,  /* 缓出曲线；不想要可传 NULL */
+                                 300, 0, NULL);
+
+    lv_style_init(&style_menu_slide_normal);
+    lv_style_set_translate_x(&style_menu_slide_normal, 0);
+    lv_style_set_transition(&style_menu_slide_normal, &trans_x);
+
+    lv_style_init(&style_menu_slide_from_right);
+    lv_style_set_translate_x(&style_menu_slide_from_right, lv_display_get_horizontal_resolution(NULL));    //屏幕宽度
+
+
+}
+/**
+ * @brief 从下往上平移
+ */
+static void menu_slide_from_bottom_init_once(void)
+{
+    if (menu_slide_from_bottom_inited) return;
+    menu_slide_from_bottom_inited = true;
+
+    static const lv_style_prop_t props_y[] = { LV_STYLE_TRANSLATE_Y, LV_STYLE_PROP_INV };
+    static lv_style_transition_dsc_t trans_y;
+    lv_style_transition_dsc_init(&trans_y,
+                                 props_y,
+                                 lv_anim_path_ease_out,  /* 缓出曲线；不想要可传 NULL */
+                                 300, 0, NULL);
+
+    lv_style_init(&style_menu_slide_normal_y);
+    lv_style_set_translate_x(&style_menu_slide_normal_y, 0);
+    lv_style_set_transition(&style_menu_slide_normal_y, &trans_y);
+
+    lv_style_init(&style_menu_slide_from_bottom);
+    lv_style_set_translate_x(&style_menu_slide_from_bottom, 240);    //屏幕高度240
+}
+
+/* 靠 lv_style_transition_dsc_t (LVGL 就会为这个属性启动一次内部过渡，不需要写任何 lv_anim_t) + 状态切换驱动过渡:
+1.自定义 USER_1 状态, 当 USER_1 状态存在时 LV_STYLE_OPA 等于 TRANSP  → 瞬间变透明（还没启动过渡）
+2.自定义默认状态, 带 transition 描述, 当 USER_1 状态不存在时 LV_STYLE_OPA 等于 COVER → 自动淡入 */
+static void menu_fade_init_once(void)
+{
+    if (menu_fade_inited) return;
+    menu_fade_inited = true;
+
+    /* 需要监视的属性列表：只监视 OPA */
+    static const lv_style_prop_t props[] = { LV_STYLE_OPA, LV_STYLE_PROP_INV };
+
+    /* transition 描述符必须 static/全局，不能放栈上 */
+    static lv_style_transition_dsc_t trans;
+    lv_style_transition_dsc_init(&trans,
+                                 props,
+                                 lv_anim_path_ease_out,  /* 缓出曲线；不想要可传 NULL */
+                                 500,                    /* 时长 ms */
+                                 0, NULL);
+
+
+    /* 默认状态：不透明；当 OPA 属性发生变化时启动过渡 */
+    lv_style_init(&style_menu_fade_normal);
+    lv_style_set_opa(&style_menu_fade_normal, LV_OPA_COVER);
+    lv_style_set_transition(&style_menu_fade_normal, &trans);
+
+    /* USER_1 状态：透明，不带 transition（切换进去时不产生动画） */
+    lv_style_init(&style_menu_transparent);
+    lv_style_set_opa(&style_menu_transparent, LV_OPA_TRANSP);
+
+}
+
+
+
+// 时间换算
+static inline void format_time(char* buf, uint32_t run_time) {
+    const uint8_t hours = run_time / 3600;
+    const uint8_t mins = (run_time / 60) % 60;
+    const uint8_t secs = run_time % 60;
+    lv_snprintf(buf, 32, "%02d:%02d:%02d", hours, mins, secs);
+}
+
+/**
+ * @brief 获取任务条件
+ * @param eBatteryType_t 电池类型
+ */
+const int32_t* get_task_setting(eBatteryType_t batt_type)
+{
+    switch (batt_type)
+    {
+    case btAuto:
+        return task_value[1];
+    case btNiMHCd:
+        return task_value[2];
+    default:
+        return task_value[0];
+    }
+}
+
+
+/**
+ * @brief 根据任务设定值找寻列表中的索引
+ * @param int32_t 当前工作任务
+ * @param option_ids 任务条件列表
+ */
+int find_task_ui_index_by_options(int32_t task_value, int32_t* option_ids){
+
+    // 根据 task_value 查找对应的字符串ID
+    int32_t target_str_id = -1;
+    for (size_t i = 0; i < sizeof(task_value_to_strid) / sizeof(task_value_to_strid[0]); ++i) {
+        if (task_value == task_value_to_strid[i].value) {
+            target_str_id = task_value_to_strid[i].str_id;
+            break;
+        }
+    }
+    if (target_str_id == -1) {
+        printf(">>> find_task_ui_index_by_options, unknown task value=%ld\n", task_value);
+        return 0;
+    }
+
+    // printf("target_str_id=%ld, task_value=%ld\n", target_str_id, task_value);
+
+    // 在 option_ids 中查找匹配的ID（数组以0结尾）
+    for (int i = 0; option_ids[i] != 0; ++i) {
+        if (option_ids[i] == (uint32_t)target_str_id) {
+            return i;   // 返回选项索引
+        }
+    }
+
+    printf(">>> task_value=%ld (str_id=%ld) not found in option_ids\n", task_value, target_str_id);
+    return 0;  // 默认返回索引0（第一个选项）
+}
+
+/**
+ * @brief 获取总览页面的工作状态图像
+ * @param value 当前工作状态
+ */
+const lv_image_dsc_t* get_stanbybatt_workstatus_img(int32_t value){
+    switch (value) {
+        case ttCharge: return &img_small_charge;
+        case ttDischarge: return &img_batt_discharge;
+        case ttStorage: return &img_batt_storage; 
+        case ttCycle: return &img_small_cycle;
+        case ttAnalysis: return &img_batt_analyse; 
+        case ttActivate: return &img_batt_activate; 
+        case ttDestroy: return &img_batt_destory;
+        default: return &img_small_none; 
+    }
+}
 
 /**
  * @brief 获取工作状态颜色
@@ -315,52 +473,189 @@ lv_color_t get_batt_workstatus_color(int32_t value){
 
 
 /**
- * @brief 更新进度条值
- * @param bar_idx 当前点击的进度条索引
- * @param value 当前进度值
+ * @brief 获取总览页面的进度条容器背景色
+ * @param value 当前工作状态
  */
-void update_batt_per_value(int bar_idx, int32_t value) {
-    if (g_current_layout == LAYOUT_VER && (bar_idx >= MAX_VER_BATT_CNT || bar_idx < 0)) 
-        return;
-    if (g_current_layout == LAYOUT_HOR && (bar_idx >= (MAX_BATT_CNT_IN_COM - MAX_VER_BATT_CNT) || bar_idx < 0)) 
-        return;
-
-    int batt_idx = GET_BATT_INDEX(current_selected_batt_comp_idx, bar_idx);
-    if (batt_idx >= MAX_BATT_TOTAL_COUNT) return;
-    batt_data_t* data = &g_batt_data[batt_idx];
-
-    int offset = 34;
-    int visibleW = bar_idx >= MAX_VER_BATT_CNT ? 227 : 126;
-    int newvalue = value + (100 - value) * offset / visibleW; // 15 + 85 * value / 100;
- 
-    lv_obj_t* bar = bar_conts[g_current_layout][bar_idx].bar;
-    if (bar) {
-        lv_bar_set_value(bar, data->BatteryLoad == 0 ? 0 : newvalue, LV_ANIM_OFF);
+lv_color_t get_workstatus_bg_color(int32_t value){
+    switch (value) {
+        case ttCharge: return COLOR_331400; // 充电中
+        // case ttDischarge: return COLOR_FF5599; // 放电
+        // case ttStorage: return COLOR_5555FF; // 存储
+        case ttCycle: return COLOR_00141A;// 循环
+        // case ttAnalysis: return COLOR_9955FF; // 分析
+        // case ttActivate: return COLOR_37C8AB; // 激活
+        // case ttDestroy: return COLOR_FF5555; // 损坏
+        default: return COLOR_262626; // 待机或未知状态
     }
-    
 }
 
 /**
- * @brief 更新电压电流数据文本
- * @param bar_idx 当前点击的进度条索引
- * @param is_info true=更新信息页面的数据文本, false=更新进度条页面的数据文本
- * @param vol_mv 电压数据
- * @param cur_ma 电流数据
+ * @brief 获取总览页面的进度条容器边框
+ * @param value 当前工作状态
  */
-void update_batt_volcur_text(int bar_idx, bool is_info, int32_t vol_mv, int32_t cur_ma) {
-    if (g_current_layout == LAYOUT_VER && (bar_idx >= MAX_VER_BATT_CNT || bar_idx < 0)) 
-        return;
-    if (g_current_layout == LAYOUT_HOR && (bar_idx >= (MAX_BATT_CNT_IN_COM - MAX_VER_BATT_CNT) || bar_idx < 0)) 
-        return;
+lv_color_t get_workstatus_border_color(int32_t value){
+    switch (value) {
+        case ttCharge: return COLOR_993D00; // 充电中
+        // case ttDischarge: return COLOR_FF5599; // 放电
+        // case ttStorage: return COLOR_5555FF; // 存储
+        case ttCycle: return COLOR_005266;// 循环
+        // case ttAnalysis: return COLOR_9955FF; // 分析
+        // case ttActivate: return COLOR_37C8AB; // 激活
+        // case ttDestroy: return COLOR_FF5555; // 损坏
+        default: return COLOR_4D4D4D; // 待机或未知状态
+    }
+}
 
+/**
+ * @brief 获取总览页面的进度条背景色
+ * @param value 当前工作状态
+ */
+lv_color_t get_bar_bg_color(int32_t value){
+    switch (value) {
+        case ttCharge: return COLOR_4D1F00; // 充电中
+        // case ttDischarge: return COLOR_FF5599; // 放电
+        // case ttStorage: return COLOR_5555FF; // 存储
+        case ttCycle: return COLOR_003D4D;// 循环
+        // case ttAnalysis: return COLOR_9955FF; // 分析
+        // case ttActivate: return COLOR_37C8AB; // 激活
+        // case ttDestroy: return COLOR_FF5555; // 损坏
+        default: return COLOR_262626; // 待机或未知状态
+    }
+}
+
+
+
+/**
+ * @brief 更新进度条值
+ * @param batt_comp_idx 电池仓索引
+ * @param bar_idx 进度条索引，0-3: 纵向电池，4-5：横向电池
+ */
+static void update_stanby_bar_value(int batt_comp_idx, int bar_idx)
+{
+    int batt_idx = GET_BATT_INDEX(batt_comp_idx, bar_idx);
+    if (batt_idx >= MAX_BATT_TOTAL_COUNT) return;
+    batt_data_t* data = &g_batt_data[batt_idx];
+    layout_type_t g_current_layout = batt_coms[batt_comp_idx].batt_cont_layout;
+    int32_t newvalue = data->value_percent;
+
+    //  printf("->>> bar_layout = %p, stanby_page_layout = %p, setting_layout = %p\n", bar_layout,  stanby_page_layout, setting_layout);
+    //  printf("->>> batt_comp_idx = %d, bar_idx = %d, BatteryLoad = %d \n", batt_comp_idx, bar_idx, data->BatteryLoad);
+
+    if (setting_layout)
+    {
+        lv_obj_t* bar = setting_bar_conts[g_current_layout][g_current_layout == LAYOUT_VER ? bar_idx : bar_idx-4].bar;
+        if (bar)
+        {
+            lv_obj_set_style_bg_color(bar, 
+                data->BatteryLoad == 0 ? COLOR_1A1A1A : get_batt_workstatus_color(data->TaskState == tsStandby ? -1 : data->work_status),
+                LV_PART_INDICATOR);
+            lv_bar_set_value(bar, data->BatteryLoad == 0 ? 0 : data->value_percent, LV_ANIM_OFF);
+        }
+
+    }else if (bar_layout)
+    {
+        lv_obj_t* bar = bar_conts[g_current_layout][g_current_layout == LAYOUT_VER ? bar_idx : bar_idx-4].bar;
+        if (bar)
+        {
+            lv_bar_set_value(bar, data->BatteryLoad == 0 ? 0 : newvalue, LV_ANIM_OFF);
+        }
+
+    }else if (stanby_page_layout)
+    {
+        lv_obj_t* bar = batt_coms[batt_comp_idx].batts[bar_idx].bar;
+        if (bar) {
+            lv_bar_set_value(bar, data->BatteryLoad == 0 ? 0 : newvalue, LV_ANIM_OFF);
+        }
+    } 
+
+}
+
+
+/**
+ * @brief 更新类型文本
+ * @param bar_idx 进度条索引, 0-3: 纵向电池，4-5：横向电池
+ * @param is_info_page  true:信息页面,false:进度条页面
+ */
+void update_bar_batt_type_text(int bar_idx, bool is_info_page) {
     int batt_idx = GET_BATT_INDEX(current_selected_batt_comp_idx, bar_idx);
     if (batt_idx >= MAX_BATT_TOTAL_COUNT) return;
     batt_data_t* data = &g_batt_data[batt_idx];
-
-    if(!is_info){
-        lv_obj_t *bar_label = bar_conts[g_current_layout][bar_idx].volcur_label;
-        if (bar_label)
+    layout_type_t g_current_layout = batt_coms[current_selected_batt_comp_idx].batt_cont_layout;
+   
+    // printf("-》》》 batt_comp_idx = %d, bar page batt(%d) batt_type = %ld, data->BatteryLoad = %d\n", current_selected_batt_comp_idx,  batt_idx, batt_type, data->BatteryLoad);
+    if (is_info_page)
+    {
+        info_row_t b = g_info_rows[g_current_layout][0];
+        if (b.info_label_name) {
+            //电池有装载有工作但识别不了类型、或者电池有装载没有工作，文本显示为“--”
+            lv_label_set_text(b.info_label_name, data->BatteryLoad == 1 && data->batt_type < 255 ? GetLanguageString(battery_value_default[data->batt_type]) : "--"); 
+        }
+        if (b.info_label_value)
         {
+            const int32_t* option_ids = get_task_setting(data->batt_type);
+            char buf[32];
+            int actual_ui_idx = find_task_ui_index_by_options(data->work_status, option_ids);
+            char* work_staus = GetLanguageString(data->TaskState == tsStandby ? STR_STANDBY : option_ids[actual_ui_idx]);
+
+            lv_snprintf(buf, sizeof(buf), " (%s)", work_staus);
+            lv_label_set_text(b.info_label_value, buf);
+
+        }
+    }else{
+         batt_t b = bar_conts[g_current_layout][g_current_layout == LAYOUT_VER ? bar_idx : bar_idx-4]; 
+        if (b.type_label) {
+            //电池有装载有工作但识别不了类型、或者电池有装载没有工作，文本显示为“--”
+            lv_label_set_text(b.type_label, data->BatteryLoad == 1 && data->batt_type < 255 ? GetLanguageString(battery_value_default[data->batt_type]) : "--"); 
+        }
+    }
+
+}
+
+
+/**
+ * @brief 更新电压电流文本
+ * @param bar_idx 进度条索引, 0-3: 纵向电池，4-5：横向电池
+ * @param is_info_page true:信息页面,false:进度条页面
+ */
+void update_bar_batt_volcur_text(int bar_idx, bool is_info_page) {
+    int batt_idx = GET_BATT_INDEX(current_selected_batt_comp_idx, bar_idx);
+    if (batt_idx >= MAX_BATT_TOTAL_COUNT) return;
+    batt_data_t* data = &g_batt_data[batt_idx];
+    layout_type_t g_current_layout = batt_coms[current_selected_batt_comp_idx].batt_cont_layout;
+    int32_t vol_mv = data->vol_mv;
+    int32_t cur_ma = data->cur_ma;
+
+    if (is_info_page)
+    {
+        char buf[32], buf2[32];
+        lv_obj_t *label_name = g_info_rows[g_current_layout][2].info_label_name;
+        if (label_name) {
+            vol_mv += 5;
+            vol_mv /= 10;
+            snprintf(buf, sizeof(buf), "%ld.%02ldV", vol_mv/100, vol_mv%100); 
+            lv_label_set_text(label_name, data->BatteryLoad == 0 ? "--" : buf); 
+        }
+        lv_obj_t *label_value = g_info_rows[g_current_layout][2].info_label_value;
+        if (label_value) {
+            if(cur_ma >= 0)
+            {
+                cur_ma += 5;
+                cur_ma /= 10;        
+                snprintf(buf2, sizeof(buf2), "%ld.%02ldA", cur_ma/100, cur_ma%100); 
+            }
+            else
+            {
+                cur_ma -= 5;
+                cur_ma /= 10;
+                cur_ma = -cur_ma;
+                snprintf(buf2, sizeof(buf2), "-%ld.%02ldA", cur_ma/100, cur_ma%100); 
+            }
+            lv_label_set_text(label_value, data->BatteryLoad == 0 ? "--" : buf2); 
+        }
+    }else {
+        batt_t b = bar_conts[g_current_layout][g_current_layout == LAYOUT_VER ? bar_idx : bar_idx-4]; 
+
+        if (b.volcur_label) {
             char buf[32];
             //部分嵌入式环境 lv_snprintf 默认不启用浮点格式化支持,可改为 snprintf
             vol_mv += 50;
@@ -369,67 +664,70 @@ void update_batt_volcur_text(int bar_idx, bool is_info, int32_t vol_mv, int32_t 
             {
                 cur_ma += 50;
                 cur_ma /= 100;
-                snprintf(buf, sizeof(buf), "%ld.%01ldV/%ld.%01ldA", vol_mv/10,vol_mv%10, cur_ma/10,cur_ma%10);
+                snprintf(buf, sizeof(buf), "%ld.%01ldV/%ld.%01ldA", vol_mv/10, vol_mv%10, cur_ma/10, cur_ma%10);
             }
             else
             {
                 cur_ma -= 50;
                 cur_ma /= 100;
                 cur_ma = -cur_ma;
-                snprintf(buf, sizeof(buf), "%ld.%01ldV/-%ld.%01ldA", vol_mv/10,vol_mv%10, cur_ma/10,cur_ma%10);
+                snprintf(buf, sizeof(buf), "%ld.%01ldV/-%ld.%01ldA", vol_mv/10, vol_mv%10, cur_ma/10, cur_ma%10);
             }
             
-            lv_label_set_text(bar_label, data->BatteryLoad == 0 ? "--" : buf);
+            lv_label_set_text(b.volcur_label, data->BatteryLoad == 0 || data->TaskState == tsStandby ? "--" : buf);
         }
-    }else{
-        char buf[32], buf2[32];
-        lv_obj_t *label_name = g_info_rows[g_current_layout][2].info_name;
-        if (label_name) {
-            vol_mv += 5;
-            vol_mv /= 10;
-            snprintf(buf, sizeof(buf), "%ld.%02ldV", vol_mv/100,vol_mv%100); 
-            lv_label_set_text(label_name, data->BatteryLoad == 0 ? "--" : buf); 
-        }
-        lv_obj_t *label_value = g_info_rows[g_current_layout][2].info_value;
+    }
+
+    
+}
+
+/**
+ * @brief 更新进度条时间文本
+ * @param bar_idx 进度条索引, 0-3: 纵向电池，4-5：横向电池
+ * @param is_info_page true:信息页面,false:进度条页面
+ */
+void update_bar_batt_time_text(int bar_idx, bool is_info_page) {
+    int batt_idx = GET_BATT_INDEX(current_selected_batt_comp_idx, bar_idx);
+    if (batt_idx >= MAX_BATT_TOTAL_COUNT) return;
+    batt_data_t* data = &g_batt_data[batt_idx];
+    layout_type_t g_current_layout = batt_coms[current_selected_batt_comp_idx].batt_cont_layout;
+
+    
+    if (is_info_page)
+    {
+        lv_obj_t *label_value = g_info_rows[g_current_layout][4].info_label_value;
         if (label_value) {
-            if(cur_ma >= 0)
-            {
-                cur_ma += 5;
-                cur_ma /= 10;        
-                snprintf(buf2, sizeof(buf2), "%ld.%02ldA", cur_ma/100,cur_ma%100); 
-            }
-            else
-            {
-                cur_ma -= 5;
-                cur_ma /= 10;
-                cur_ma = -cur_ma;
-                snprintf(buf2, sizeof(buf2), "-%ld.%02ldA", cur_ma/100,cur_ma%100); 
-            }
+            char buf2[32];
+            format_time(buf2, data->time_s);
             lv_label_set_text(label_value, data->BatteryLoad == 0 ? "--" : buf2); 
         }
 
+    }else{
+        batt_t b = bar_conts[g_current_layout][g_current_layout == LAYOUT_VER ? bar_idx : bar_idx-4]; 
+        if (b.time_label) {
+            char buf[32];
+            format_time(buf, data->time_s);
+            lv_label_set_text(b.time_label, data->BatteryLoad == 0 || data->TaskState == tsStandby ? "--" : buf);
+        }
     }
+
+    
 }
 
 
 /**
  * @brief 更新瓦时文本
- * @param bar_idx 当前点击的进度条索引
- * @param vol_mv 电压数据
- * @param cur_ma 电流数据
+ * @param bar_idx 进度条索引, 0-3: 纵向电池，4-5：横向电池
  */
-void update_batt_wh_text(int bar_idx, uint32_t value_mWh) {
-    if (g_current_layout == LAYOUT_VER && (bar_idx >= MAX_VER_BATT_CNT || bar_idx < 0)) 
-        return;
-    if (g_current_layout == LAYOUT_HOR && (bar_idx >= (MAX_BATT_CNT_IN_COM - MAX_VER_BATT_CNT) || bar_idx < 0)) 
-        return;
-
+void update_batt_wh_text(int bar_idx) {
     int batt_idx = GET_BATT_INDEX(current_selected_batt_comp_idx, bar_idx);
     if (batt_idx >= MAX_BATT_TOTAL_COUNT) return;
     batt_data_t* data = &g_batt_data[batt_idx];
-
+    layout_type_t g_current_layout = batt_coms[current_selected_batt_comp_idx].batt_cont_layout;
+    uint32_t value_mWh = data->value_mWh;
+    
     // 直接使用全局数组，根据当前布局
-    lv_obj_t *label_name = g_info_rows[g_current_layout][4].info_name;
+    lv_obj_t *label_name = g_info_rows[g_current_layout][4].info_label_name;
     if (label_name) {
         char buf[32];
         if(data->BatteryLoad == 0)
@@ -453,65 +751,274 @@ void update_batt_wh_text(int bar_idx, uint32_t value_mWh) {
 
 
 /**
- * @brief 时间换算
- * @param buf 字符串文本,格式为 时:分:秒
- * @param run_time_s 时间,s
+ * @brief 更新欧姆文本
+ * @param bar_idx 进度条索引, 0-3: 纵向电池，4-5：横向电池
  */
-static inline void format_time(char* buf, uint32_t run_time_s) {
-    const uint8_t hours = run_time_s / 3600;
-    const uint8_t mins = (run_time_s / 60) % 60;
-    const uint8_t secs = run_time_s % 60;
-    lv_snprintf(buf, 32, "%02d:%02d:%02d", hours, mins, secs);
-}
-
-
-/**
- * @brief 更新时间文本
- * @param bar_idx 当前点击的进度条索引
- * @param is_info true=更新信息页面的数据文本, false=更新进度条页面的数据文本
- * @param run_time_s 时间数据
- */
-void update_batt_time_text(int bar_idx, bool is_info, uint32_t run_time_s) {
-    if (g_current_layout == LAYOUT_VER && (bar_idx >= MAX_VER_BATT_CNT || bar_idx < 0)) 
-        return;
-    if (g_current_layout == LAYOUT_HOR && (bar_idx >= (MAX_BATT_CNT_IN_COM - MAX_VER_BATT_CNT) || bar_idx < 0)) 
-        return;
-
+void update_batt_ohms_text(int bar_idx) {
     int batt_idx = GET_BATT_INDEX(current_selected_batt_comp_idx, bar_idx);
     if (batt_idx >= MAX_BATT_TOTAL_COUNT) return;
     batt_data_t* data = &g_batt_data[batt_idx];
-    char buf[32];
-    format_time(buf, run_time_s);
+    layout_type_t g_current_layout = batt_coms[current_selected_batt_comp_idx].batt_cont_layout;
+    uint32_t value = data->value_Ohms;
 
-    if(!is_info){
-        lv_obj_t* time_label = bar_conts[g_current_layout][bar_idx].time_label;
-        if (time_label) {
-            lv_label_set_text(time_label, data->BatteryLoad == 0 ? "--" : buf);
-        }
-    }else{
-        lv_obj_t *label_value = g_info_rows[g_current_layout][4].info_value;
-        if (label_value) {
-            lv_label_set_text(label_value, data->BatteryLoad == 0 ? "--" : buf); 
-        }
+    lv_obj_t *label_name = g_info_rows[g_current_layout][3].info_label_name;
+    if (label_name) {
+        char buf[32];
+        snprintf(buf, sizeof(buf), "%ldmΩ", value); 
+        if(data->BatteryLoad == 0 || value == 0)
+            lv_label_set_text(label_name, "--"); 
+        else
+            lv_label_set_text(label_name, buf);
+    }
+}
+
+
+/**
+ * @brief 更新温度文本
+ * @param bar_idx 进度条索引, 0-3: 纵向电池，4-5：横向电池
+ */
+void update_batt_temp_text(int bar_idx) {
+    int batt_idx = GET_BATT_INDEX(current_selected_batt_comp_idx, bar_idx);
+    if (batt_idx >= MAX_BATT_TOTAL_COUNT) return;
+    batt_data_t* data = &g_batt_data[batt_idx];
+    layout_type_t g_current_layout = batt_coms[current_selected_batt_comp_idx].batt_cont_layout;
+    int32_t value_tempc = data->value_tempc;
+    int32_t value_tempf = data->value_tempf;
+
+    // printf(">>> update_batt_temp_text, batt_index=%d, work_status=%d\n", batt_index, data->work_status);
+
+    lv_obj_t *label_value = g_info_rows[g_current_layout][3].info_label_value;
+    if (label_value) {
+        char buf2[32];
+        snprintf(buf2, sizeof(buf2), "%ld°C, %ld°F", value_tempc, value_tempf ); 
+        lv_label_set_text(label_value, data->BatteryLoad == 0 ? "--" : buf2); 
     }
 
 }
 
 
 /**
- * @brief 删除对象
- * @param layout 对象
+ * @brief 更新毫安时文本
+ * @param bar_idx 进度条索引, 0-3: 纵向电池，4-5：横向电池
  */
-void lv_delete_layout(lv_obj_t **layout)
-{
-    if(*layout != NULL)
-    {
-        lv_obj_delete(*layout);
-        *layout = NULL;
+void update_batt_mah_text(int bar_idx) {
+    int batt_idx = GET_BATT_INDEX(current_selected_batt_comp_idx, bar_idx);
+    if (batt_idx >= MAX_BATT_TOTAL_COUNT) return;
+    batt_data_t* data = &g_batt_data[batt_idx];
+    layout_type_t g_current_layout = batt_coms[current_selected_batt_comp_idx].batt_cont_layout;
+    uint32_t value = data->value_mah;
+
+    lv_obj_t *label_value = g_info_rows[g_current_layout][1].info_label_value;
+    if (label_value) {
+        char buf2[32];
+        snprintf(buf2, sizeof(buf2), "%ldmAh", value);
+        lv_label_set_text(label_value, data->BatteryLoad == 0 ? "--" : buf2); 
     }
 }
 
 
+/**
+ * @brief 更新百分比文本
+ * @param bar_idx 进度条索引, 0-3: 纵向电池，4-5：横向电池
+ */
+void update_batt_per_text(int bar_idx) {
+    int batt_idx = GET_BATT_INDEX(current_selected_batt_comp_idx, bar_idx);
+    if (batt_idx >= MAX_BATT_TOTAL_COUNT) return;
+    batt_data_t* data = &g_batt_data[batt_idx];
+    layout_type_t g_current_layout = batt_coms[current_selected_batt_comp_idx].batt_cont_layout;
+    uint8_t value = data->value_percent > 100 ? 100 : data->value_percent;
+
+    lv_obj_t *label_value = g_info_rows[g_current_layout][1].info_label_name;
+    if (label_value) {
+        char buf2[32];
+        snprintf(buf2, sizeof(buf2), "%d%%", value);
+        lv_label_set_text(label_value, data->BatteryLoad == 0 ? "--" : buf2); 
+    }
+}
+
+ /* 尺寸动画 */
+static void ripple_size_cb(void *var, int32_t value)
+{
+    lv_obj_set_size((lv_obj_t *)var, value, value);
+}
+
+/* 背景透明度动画 */
+static void ripple_opa_cb(void *var, int32_t value)
+{
+    lv_obj_set_style_bg_opa((lv_obj_t *)var, value, 0);
+}
+
+/* 播放结束回调：把波纹层藏起来 */
+static void ripple_ready_cb(lv_anim_t *a)
+{
+    lv_obj_t *r = (lv_obj_t *)a->var;
+    lv_obj_add_flag(r, LV_OBJ_FLAG_HIDDEN);
+}
+
+/**
+ * @brief 启动波纹动画
+ * @param from      起始尺寸 = 图标大小
+ * @param to        结束尺寸
+ * @param dur_ms    单圈扩散时长 ms 
+ * @param delay_ms  每个波纹错开时间：形成一波接一波
+ * @param opa_from  起始透明度
+ * @param play_once 是否只播放一次
+ */                        
+static void ripple_start(lv_obj_t *r,
+                         lv_coord_t from, lv_coord_t to,
+                         uint32_t dur_ms, uint32_t delay_ms,
+                         lv_opa_t opa_from,
+                          bool play_once)
+{
+    
+    lv_anim_delete(r, NULL);                     /* 清掉该对象上所有旧动画 */
+    lv_obj_remove_flag(r, LV_OBJ_FLAG_HIDDEN);
+    
+    
+    lv_anim_t a;
+    /* --- 尺寸动画 --- */
+    lv_anim_init(&a);
+    lv_anim_set_var(&a, r);
+    lv_anim_set_exec_cb(&a, ripple_size_cb);
+    lv_anim_set_values(&a, from, to);
+    lv_anim_set_time(&a, dur_ms);
+    lv_anim_set_delay(&a, delay_ms);
+    lv_anim_set_repeat_count(&a, play_once ? 1 : LV_ANIM_REPEAT_INFINITE);  //LV_ANIM_REPEAT_INFINITE 重复执行
+    lv_anim_set_path_cb(&a, lv_anim_path_ease_out);
+    lv_anim_start(&a);
+
+    /* --- 透明度动画 --- */
+    lv_anim_init(&a);
+    lv_anim_set_var(&a, r);
+    lv_anim_set_exec_cb(&a, ripple_opa_cb);
+    lv_anim_set_values(&a, opa_from, LV_OPA_TRANSP);
+    lv_anim_set_time(&a, dur_ms);
+    lv_anim_set_delay(&a, delay_ms);
+    lv_anim_set_repeat_count(&a, play_once ? 1 : LV_ANIM_REPEAT_INFINITE);
+    lv_anim_set_path_cb(&a, lv_anim_path_ease_out);
+    if (play_once){
+        lv_anim_set_ready_cb(&a, ripple_ready_cb);   /* ★ 播完隐藏 */
+    }
+    lv_anim_start(&a);
+}
+/* 创建单个 ripple */
+static lv_obj_t *ripple_create(lv_obj_t *parent, lv_color_t color)
+{
+    lv_obj_t *r = lv_obj_create(parent);
+    lv_obj_remove_style_all(r);                                  /* 清掉默认样式 */
+    lv_obj_set_size(r, 30, 30);                                  /* 初始同图标大小 */
+    lv_obj_set_style_radius(r, LV_RADIUS_CIRCLE, 0);             /* 变圆 */
+    lv_obj_set_style_bg_color(r, color, 0);
+    lv_obj_set_style_bg_opa(r, LV_OPA_TRANSP, 0);                /* 动画里会设置 */
+    lv_obj_set_style_border_width(r, 0, 0);
+    lv_obj_remove_flag(r, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_remove_flag(r, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_center(r);                                            /* 居中：尺寸变化后会自动保持中心 */
+    return r;
+}
+/* 停止某一根 bar 上的所有 ripple：删动画 + 隐藏 */
+static void bar_ripple_stop(int layout, int ui_bar_i)
+{
+    for (int i = 0; i < RIPPLE_NUM; i++) {
+        lv_obj_t *r = bar_conts[layout][ui_bar_i].ripples[i];
+        lv_anim_delete(r, NULL);                 /* 尺寸 + 透明度两条一起删 */
+        lv_obj_add_flag(r, LV_OBJ_FLAG_HIDDEN);  /* 关键：删完必须隐藏 */
+    }
+}
+
+/* 重启某一根 bar 上的所有 ripple：先重置再启动 */
+static void bar_ripple_restart(int layout, int ui_bar_i)
+{
+    int batt_idx = GET_BATT_INDEX(current_selected_batt_comp_idx, layout == LAYOUT_VER ? ui_bar_i : ui_bar_i+4);
+    if (batt_idx >= MAX_BATT_TOTAL_COUNT) return;
+    batt_data_t* data = &g_batt_data[batt_idx];
+
+    if (data->BatteryLoad == 0 || data->TaskState == tsStandby) return;
+
+    for (int i = 0; i < RIPPLE_NUM; i++) {
+        lv_obj_t *r = bar_conts[layout][ui_bar_i].ripples[i];
+
+        lv_anim_delete(r, NULL);                 /*清旧动画 */
+
+        /* 重置到初始尺寸/透明度，避免 delay 期间看到残留状态 */
+        lv_obj_set_size(r, RIPPLE_FROM, RIPPLE_FROM);
+        lv_obj_set_style_bg_color(r, get_batt_workstatus_color(data->work_status), 0);
+                
+        lv_obj_set_style_opa(r, LV_OPA_40, 0);   
+        lv_obj_center(r);                        
+
+        lv_obj_remove_flag(r, LV_OBJ_FLAG_HIDDEN); /*显示 */
+
+        /* 错开启动，形成波纹一波接一波 */
+        ripple_start(r,
+                     RIPPLE_FROM, RIPPLE_TO,
+                     RIPPLE_DUR, i * 200,
+                     LV_OPA_40, false);
+    }
+}
+/**
+ * @brief 更新进度条页面的进度条、进度条边框颜色
+ * @param g_current_layout  进度条页面布局
+ * @param clicked_ui_idx    点击的进度条索引，0-3: 纵向电池，0-2：横向电池
+ */                   
+void chang_barcont_bar_border_color(layout_type_t g_current_layout, int clicked_ui_idx){
+    int bar_cnt = g_current_layout == LAYOUT_VER ? 4 : 6;
+    int bar_init = g_current_layout == LAYOUT_VER ? 0 : 4;
+
+    for (int idx = bar_init; idx < bar_cnt; idx ++)
+    {
+        int ui_i = g_current_layout == LAYOUT_VER ? idx : idx-4;;
+        batt_t b = bar_conts[g_current_layout][ui_i]; 
+
+        int batt_idx = GET_BATT_INDEX(current_selected_batt_comp_idx, idx);
+        if (batt_idx >= MAX_BATT_TOTAL_COUNT) return;
+        batt_data_t* old_data = &g_batt_data[batt_idx];
+
+        if (b.bar_cont)
+        {
+            lv_obj_set_style_bg_color(b.bar_cont, old_data->BatteryLoad == 0 ? COLOR_1A1A1A : COLOR_262626, LV_PART_MAIN);
+            if (info_layout)
+            {
+                
+                lv_obj_set_style_border_color(b.bar_cont, old_data->BatteryLoad == 0 ? COLOR_404040 : COLOR_999999, LV_PART_MAIN);
+
+            }else if (!info_layout){
+                //当前点击的进度条边框
+                lv_obj_set_style_border_color(b.bar_cont, clicked_ui_idx == ui_i ? COLOR_FFFFFF : COLOR_404040, LV_PART_MAIN);
+            }
+        }
+        if (b.bar)
+        {
+            //其余进度条边框
+            lv_obj_set_style_bg_color(b.bar, old_data->BatteryLoad == 0 ? COLOR_1A1A1A : COLOR_0D0D0D, LV_PART_MAIN);
+            if (info_layout)
+            {
+                lv_obj_set_style_bg_color(b.bar, 
+                    old_data->BatteryLoad == 0 ? COLOR_1A1A1A : get_batt_workstatus_color(old_data->TaskState == tsStandby ? -1 : old_data->work_status), 
+                    LV_PART_INDICATOR);
+
+            }else if (!info_layout){
+                    lv_obj_set_style_bg_color(b.bar, 
+                    old_data->BatteryLoad == 0 ? COLOR_1A1A1A : (clicked_ui_idx == ui_i ? get_batt_workstatus_color(old_data->work_status) : COLOR_999999), 
+                    LV_PART_INDICATOR);
+            }
+        }
+
+        // if (!info_layout)
+        // {
+        //     // printf("->>> bar_conts[%d][%d] will create info_layout, bar ripple stop\n", g_current_layout, ui_i);
+        //     /* ★ 停掉所有 bar 的 ripple */
+        //     bar_ripple_stop(g_current_layout, ui_i);
+        // }else if (info_layout)
+        // {
+        //     // printf("->>> bar_conts[%d][%d] will delete info_layout, bar ripple restart\n", g_current_layout, ui_i);
+        //     /*  恢复波纹动画 */
+        //     bar_ripple_restart(g_current_layout, ui_i);
+        // }
+                
+        
+    }
+}
 
 /**********************
  *  任务设置
@@ -527,22 +1034,6 @@ static batt_data_t* get_current_batt_data(void) {
 }    
 
 
-/**
- * @brief 获取任务条件
- * @param batt_type 电池类型
- */
-const int32_t* get_task_setting(eBatteryType_t batt_type)
-{
-    switch (batt_type)
-    {
-    case btAuto:
-        return task_value[1];
-    case btNiMHCd:
-        return task_value[2];
-    default:
-        return task_value[0];
-    }
-}
 
 
 /**
@@ -777,6 +1268,7 @@ void update_setting_row_value(int setting_row_idx, int data) {
     }
 }
 
+
 /**
  * @brief 设置控件的可见性（封装隐藏/显示标志操作）
  * @param obj 控件对象指针
@@ -792,9 +1284,10 @@ static inline void set_obj_visibility(lv_obj_t* obj, bool visible) {
     }
 }
 
-
 /**
- * @brief 刷新设置行的可见性 
+ * @brief 设置控件的可见性（封装隐藏/显示标志操作）
+ * @param obj 控件对象指针
+ * @param visible true=显示, false=隐藏
  */
 static void refresh_setting_row_visibility(void) {
     int battI = GET_BATT_INDEX(current_selected_batt_comp_idx, current_selected_bar_idx);
@@ -807,7 +1300,6 @@ static void refresh_setting_row_visibility(void) {
     // 1. 隐藏所有设置行（从行1到行 MAX_SETTING_ROW_COUNT-2，不隐藏标题行和开始按钮）
     for (int i = 1; i < MAX_SETTING_ROW_COUNT - 1; i++) {
         set_obj_visibility(setting_mainlist[i].row_cont, false);
-        set_obj_visibility(setting_mainlist[i].line, false);
     }
 
     // 2. 构建可见行列表（行号从1开始）
@@ -828,10 +1320,10 @@ static void refresh_setting_row_visibility(void) {
         case btAuto:   // 自动
             if (task == ttCharge) {            // 充电
                 ADD_ROW(SET_CHEMISTRY); ADD_ROW(SET_TASK); ADD_ROW(SET_CURRENT); ADD_ROW(SET_START);
-                lv_obj_set_style_pad_bottom(task_setting_text_cont, 41, 0);
+                lv_obj_set_style_pad_bottom(task_setting_text_cont, 40, 0);
             } else if (task == ttDestroy) {     // 销毁
                 ADD_ROW(SET_CHEMISTRY); ADD_ROW(SET_TASK); ADD_ROW(SET_START);
-                lv_obj_set_style_pad_bottom(task_setting_text_cont, 82, 0);//实现子对象总高度小于可视高度，仍可上下滚动
+                lv_obj_set_style_pad_bottom(task_setting_text_cont, 80, 0);//实现子对象总高度小于可视高度，仍可上下滚动
             }
             break;
 
@@ -839,19 +1331,19 @@ static void refresh_setting_row_visibility(void) {
             lv_obj_set_style_pad_bottom(task_setting_text_cont, 0, 0);
             if (task == ttCharge || task == ttDestroy) {
                 ADD_ROW(SET_CHEMISTRY); ADD_ROW(SET_TASK); ADD_ROW(SET_START);
-                 lv_obj_set_style_pad_bottom(task_setting_text_cont, 82, 0);
+                 lv_obj_set_style_pad_bottom(task_setting_text_cont, 80, 0);
             }
             break;
 
         default:   // 其他类型
-            lv_obj_set_style_pad_bottom(task_setting_text_cont, 0, 0);
+            lv_obj_set_style_pad_bottom(task_setting_text_cont, 10, 0);
             if (task == ttCycle) {            // 循环
                 ADD_ROW(SET_CHEMISTRY); ADD_ROW(SET_TASK); ADD_ROW(SET_CONDITION); ADD_ROW(SET_CHG_CURRENT); ADD_ROW(SET_DISCHG_CURRENT); ADD_ROW(SET_CYC); ADD_ROW(SET_START);
             } else if (task == ttAnalysis || task == ttActivate) {     // 分析、激活
                 ADD_ROW(SET_CHEMISTRY); ADD_ROW(SET_TASK); ADD_ROW(SET_CONDITION); ADD_ROW(SET_CHG_CURRENT); ADD_ROW(SET_DISCHG_CURRENT); ADD_ROW(SET_START);
             }else if (task == ttDestroy) {     // 销毁
                 ADD_ROW(SET_CHEMISTRY); ADD_ROW(SET_TASK); ADD_ROW(SET_START);
-                 lv_obj_set_style_pad_bottom(task_setting_text_cont, 82, 0);//实现子对象总高度小于可视高度，仍可上下滚动
+                 lv_obj_set_style_pad_bottom(task_setting_text_cont, 80, 0);//实现子对象总高度小于可视高度，仍可上下滚动
             } else {                    // 其他任务：充电、放电、存储等
                 ADD_ROW(SET_CHEMISTRY); ADD_ROW(SET_TASK); ADD_ROW(SET_CURRENT); ADD_ROW(SET_CONDITION); ADD_ROW(SET_START);
             }
@@ -863,13 +1355,13 @@ static void refresh_setting_row_visibility(void) {
 
     printf("refresh_setting_row_visibility battI = %d, type = %d, task = %d, visible_count= %d\n", battI, battery_type, task, visible_count);
 
+    
     // 3. 遍历可见行列表，设置为可见
     for (int i = 0; i < visible_count; i++) {
         int row = visible_rows[i];
         // 安全检查，防止越界
         if (row >= 1 && row < MAX_SETTING_ROW_COUNT) {
             set_obj_visibility(setting_mainlist[row].row_cont, true);
-            set_obj_visibility(setting_mainlist[row].line, true);
         } else {
             printf("ERROR: invalid row %d in visible_rows\n", row);
         }
@@ -905,6 +1397,7 @@ static int get_task_list_idx(int row)
     batt_data_t* data = get_current_batt_data();
     int type = data->setting_items[0]; // 第0项是电池类型索引
     int status = data->setting_items[1]; 
+    layout_type_t g_current_layout = batt_coms[current_selected_batt_comp_idx].batt_cont_layout;
     if(row == SET_CHEMISTRY)
     {
         idx = type;
@@ -944,35 +1437,45 @@ static int get_task_list_idx(int row)
 }
 
 
+//取消选中的父项行背景
+static void cancel_selected_setting_row(){
+
+    if (current_selected_taskrow_idx == 0) return;
+    lv_obj_set_style_bg_opa(setting_mainlist[current_selected_taskrow_idx].row_cont, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_bg_color(setting_mainlist[current_selected_taskrow_idx].row_cont, COLOR_CLEAR, 0);
+
+    lv_obj_set_style_img_recolor(setting_mainlist[current_selected_taskrow_idx].title_img, COLOR_4D4D4D, 0);
+    lv_obj_set_style_text_color(setting_mainlist[current_selected_taskrow_idx].title_label, COLOR_4D4D4D, 0);
+
+}
+
 /**
  * @brief  GUI 开发中, LVGL 的非阻塞定时器事件, 延时 100ms 再销毁子列表
  */
 static void my_callback(lv_timer_t* timer)
 {
-
-    lv_obj_t* sub = setting_sublist[current_selected_taskrow_idx];
+    lv_obj_t* sub = setting_sub_container[current_selected_taskrow_idx];
     if (sub) {
         printf("after lv_refr_now, sub  = NULL \n");
         lv_obj_del(sub);
-        setting_sublist[current_selected_taskrow_idx] = NULL;
+        setting_sub_container[current_selected_taskrow_idx] = NULL;
     }
     // 清除父按钮的选中样式
-    lv_obj_clear_state(setting_mainlist[current_selected_taskrow_idx].row_cont, LV_STATE_CHECKED);
-    current_selected_taskrow_idx = -1;
+    cancel_selected_setting_row();
 }
 
 /**
  * @brief 子列表行点击事件
  */
 static void child_click_cb(lv_event_t *e) {
-    lv_obj_t* child_btn = lv_event_get_target(e);
-    lv_obj_t* sub_container = lv_obj_get_parent(child_btn);         // 子容器
+     lv_obj_t* child_btn = lv_event_get_target(e);                   // 当前点击的子项行容器 row_cont 
+    lv_obj_t* sub_container = lv_obj_get_parent(child_btn);         // 子容器 layout
     lv_event_code_t code = lv_event_get_code(e);
 
     if (code == LV_EVENT_CLICKED)
     {
-        // 检查当前展开的行索引是否有效
-        if (current_selected_taskrow_idx < 0 || current_selected_taskrow_idx >= MAX_SETTING_ROW_COUNT) {
+        // 检查当前展开的父项行索引是否有效
+        if (current_selected_taskrow_idx <= 0 || current_selected_taskrow_idx >= MAX_SETTING_ROW_COUNT) {
             printf("Invalid current_selected_taskrow_idx: %d\n", current_selected_taskrow_idx);
             return;
         }
@@ -980,37 +1483,36 @@ static void child_click_cb(lv_event_t *e) {
         int current_selected_sub = get_task_list_idx(current_selected_taskrow_idx);     // 曾经选中的子项索引
         int clicked_sub_idx = (int)(intptr_t)lv_obj_get_user_data(child_btn);           // 当前点击的子项索引
 
-        // printf("row(%d) child list olddata = %d, newdata = %d\n", 
-        //     current_selected_taskrow_idx, current_selected_sub, clicked_sub_idx);
+        printf("row(%d) child list olddata = %d, newdata = %d\n", 
+            current_selected_taskrow_idx, current_selected_sub, clicked_sub_idx);
 
         // ====== 1. 如果点击已选中子项 → 仅折叠（删除） ======
         if (current_selected_sub == clicked_sub_idx) {
-            lv_obj_t* sub = setting_sublist[current_selected_taskrow_idx];
-            if (sub) {
-                printf("setting_sublist  = NULL \n");
-                lv_obj_del(sub);
-                setting_sublist[current_selected_taskrow_idx] = NULL;     // 立即置空，防止悬空
-            }
+            lv_delete_layout(&setting_sub_container[current_selected_taskrow_idx]);
+            
             // 清除父按钮的选中样式
-            lv_obj_clear_state(setting_mainlist[current_selected_taskrow_idx].row_cont, LV_STATE_CHECKED);
-            current_selected_taskrow_idx = -1;
+            cancel_selected_setting_row();
             return;
         }
 
         // ====== 2. 点击不同子项 → 切换选中 ======
         // 清除旧选中
-        if (current_selected_sub != -1) {
-            // 注意：子容器中每个子项由 line + btn 组成，所以 btn 索引为 current_selected_sub * 2 + 1
-            lv_obj_t* old_child = lv_obj_get_child(sub_container, current_selected_sub*2+1);
-            if (old_child) {
-                lv_obj_remove_state(old_child, LV_STATE_CHECKED);
+        if (current_selected_sub >= 0) {
+            lv_obj_t* last_obj = lv_obj_get_child(sub_container, current_selected_sub);
+            if (last_obj && lv_obj_is_valid(last_obj)) {
+                lv_obj_set_style_bg_opa(last_obj, LV_OPA_TRANSP, 0);
+                lv_obj_set_style_text_color(lv_obj_get_child(last_obj, 0), COLOR_000000, 0);
+                // printf(" cancel last_idx \n");
             }
         }
 
         // 设置新选中
         if (child_btn && lv_obj_is_valid(child_btn)) {
-            lv_obj_add_state(child_btn, LV_STATE_CHECKED);
-            lv_obj_scroll_to_view(child_btn, LV_ANIM_OFF);                  //滚动定位
+            lv_obj_set_style_bg_opa(child_btn, LV_OPA_COVER, 0);
+            lv_obj_set_style_bg_color(child_btn, COLOR_0066FF, 0);
+
+            lv_obj_set_style_text_color(lv_obj_get_child(child_btn, 0), COLOR_FFFFFF, 0);
+            // lv_obj_scroll_to_view(child_btn, LV_ANIM_OFF); //滚动定位
         }
 
 
@@ -1019,7 +1521,7 @@ static void child_click_cb(lv_event_t *e) {
         if (!data) return;
         int type = data->setting_items[0]; // 第0项是电池类型索引
         int status = data->setting_items[1];
-
+        layout_type_t g_current_layout = batt_coms[current_selected_batt_comp_idx].batt_cont_layout;
         int row = current_selected_taskrow_idx;
         int32_t newdata = 0;
         const uint16_t* u16option_ids; 
@@ -1068,7 +1570,7 @@ static void child_click_cb(lv_event_t *e) {
         // 持久化到电池数据结构
         data->setting_items[row - 1] = newdata;
         update_setting_row_value(row, newdata);
-        printf(">>> setting row(%d) save new data = %ld\n", row, newdata);
+        // printf(">>> setting row(%d) save new data = %ld\n", row, newdata);
 
         // 更新行上显示的文本
         if(row == SET_CHEMISTRY)
@@ -1127,22 +1629,11 @@ static void child_click_cb(lv_event_t *e) {
         // ====== 3. 选择后自动折叠（删除子容器） ======
         // 注意：子容器索引与父按钮索引，其实数值上一致
         lv_refr_now(lv_display_get_default());      //手动强制刷新
-        // vTaskDelay(100 / portTICK_PERIOD_MS);    // RTOS 环境延时100ms
-
-        // lv_obj_t* sub = setting_sublist[current_selected_taskrow_idx];
-        // if (sub) {
-        //     printf("after lv_refr_now, sub  = NULL \n");
-        //     // lv_obj_del_async(sub);
-        //     lv_obj_del(sub);
-        //     setting_sublist[current_selected_taskrow_idx] = NULL;
-        // }
-        // // 清除父按钮的选中样式
-        // lv_obj_clear_state(setting_mainlist[current_selected_taskrow_idx].row_cont, LV_STATE_CHECKED);
-        // current_selected_taskrow_idx = -1;
 
         //  GUI 开发中, LVGL 的非阻塞定时器事件
         lv_timer_t * timer = lv_timer_create(my_callback, 100, NULL);
         lv_timer_set_repeat_count(timer, 1);                            // 重复次数为 1，执行完自动删除
+
     }
 
 
@@ -1159,7 +1650,7 @@ void update_single_item_value(int setting_row_idx, lv_obj_t* label, int32_t ui_i
 
     // 获取子对象数量，即选项列表长度
     // printf("update row(%d) item list value = %ld \n", setting_row_idx, ui_idx);
-
+    layout_type_t g_current_layout = batt_coms[current_selected_batt_comp_idx].batt_cont_layout;
     const int32_t* option_ids;
     const uint16_t* u16option_ids;
     batt_data_t* data = get_current_batt_data();
@@ -1231,6 +1722,7 @@ void update_single_item_value(int setting_row_idx, lv_obj_t* label, int32_t ui_i
  * @param row_idx 任务行
  */
 int get_sub_items_count(int row_idx) {
+    layout_type_t g_current_layout = batt_coms[current_selected_batt_comp_idx].batt_cont_layout;
     batt_data_t* data = get_current_batt_data();
     int type = data->setting_items[0]; // 第0项是电池类型索引
     int status = data->setting_items[1]; 
@@ -1307,110 +1799,235 @@ setting_row_widgets_t create_setting_row(lv_obj_t* parent, bool is_last)
     widget.row_cont = lv_obj_create(parent);
     lv_obj_set_size(widget.row_cont, lv_pct(100), 41);
     lv_obj_add_style(widget.row_cont, &bg_style, 0);
-    lv_obj_add_style(widget.row_cont, &style_row_selected, LV_STATE_CHECKED); //添加选中状态的样式
     lv_obj_set_style_bg_color(widget.row_cont, COLOR_CLEAR, 0);
     lv_obj_set_style_bg_opa(widget.row_cont, LV_OPA_TRANSP, 0);
     lv_obj_set_flex_flow(widget.row_cont, LV_FLEX_FLOW_ROW);
     lv_obj_set_flex_align(widget.row_cont, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_left(widget.row_cont, 0, 0); //title_img 与父级间距
+    lv_obj_set_style_pad_right(widget.row_cont, 10, 0); 
+    lv_obj_set_style_pad_column(widget.row_cont, 0, 0);
 
     lv_obj_add_flag(widget.row_cont, LV_OBJ_FLAG_CHECKABLE);               //允许选中 
     lv_obj_clear_flag(widget.row_cont, LV_OBJ_FLAG_CLICK_FOCUSABLE);    // 清除焦点事件，绑定点击回调
-
 
     // 图像
     widget.title_img = lv_image_create(widget.row_cont);
     lv_image_set_src(widget.title_img, &img_chemistry);
     lv_obj_set_style_image_recolor_opa(widget.title_img, LV_OPA_COVER, 0);
     lv_obj_set_style_image_recolor(widget.title_img, COLOR_333333, 0);
-    // lv_obj_set_style_translate_x(widget.title_img, -8, 0);
+    lv_obj_set_style_margin_right(widget.title_img, 8, 0); //title_img 与 title_label 间距
 
     // 标题
-    char buf[16];
-    int random_row = arc4random() % 100;  // 假设范围 0~99
     widget.title_label = lv_label_create(widget.row_cont);
-    lv_snprintf(buf, sizeof(buf), "title label %d", random_row);
-    lv_label_set_text(widget.title_label, buf);
     lv_obj_set_style_text_color(widget.title_label, COLOR_333333, 0);
-    lv_obj_set_style_text_font(widget.title_label, &font_isdtyahei_18, 0);
-    // lv_obj_set_style_translate_y(widget.title_label, 1, 0);
-    // lv_obj_set_style_translate_x(widget.title_label, 8, 0);
-    lv_obj_set_flex_grow(widget.title_label, 1);
+    lv_obj_set_style_text_font(widget.title_label, &font_isdtyahei_18_2, 0);
 
 
     if (!is_last) 
     {
+        lv_obj_set_flex_grow(widget.title_label, 1);    // 撑满剩余空间 → 右侧元素自动贴右
+
         widget.value_label = lv_label_create(widget.row_cont);
         lv_label_set_text(widget.value_label, "--");
-        lv_obj_set_style_text_font(widget.value_label, &font_isdtyahei_18, 0);
-        lv_label_set_long_mode(widget.value_label, LV_LABEL_LONG_MODE_SCROLL_CIRCULAR);
-        lv_obj_set_style_translate_x(widget.value_label, -8, 0);
+        lv_obj_set_style_text_font(widget.value_label, &font_isdtyahei_18_2, 0);
+        lv_obj_set_style_margin_right(widget.value_label, 9, 0);   // 与 value_img 间距
+        // lv_label_set_long_mode(widget.value_label, LV_LABEL_LONG_MODE_SCROLL_CIRCULAR);
         // 注意：值标签不设置 flex_grow，保持内容宽度
 
         widget.value_img = lv_image_create(widget.row_cont);
         lv_image_set_src(widget.value_img, &img_right_arrow);
-        lv_obj_set_style_translate_x(widget.value_img, -8, 0);
     }
     
     return widget;
 }
 
+static void anim_x_cb(void *obj, int32_t v)
+{
+    // printf("anim_x_cb called: v=%ld, obj=%p\n", v, obj);
+    lv_obj_set_style_translate_x((lv_obj_t *)obj, v, 0);
+}
 
 /**
- * @brief 创建子列表
+ * @brief 创建菜单页面子列表、任务设置子列表
+ * @param row_i 父列表的点击行索引
+ * @return 返回 子列表
  */
-static lv_obj_t* create_sublist(int row_i){
-    int length = get_sub_items_count(row_i);                                //子列表长度
-    int current_selected = row_i == -1 ? 0 : get_task_list_idx(row_i);      //选中的子项索引
+static lv_obj_t* add_item_list(int row_i)
+{
+    //  printf(">>> first build setting_item_list2\n");
+    
 
-    printf("fill row(%d) sublist, length = %d, current child item selected idx = %d \n", row_i, length, current_selected);
+    lv_obj_t* item_list;
+    layout_type_t g_current_layout = batt_coms[current_selected_batt_comp_idx].batt_cont_layout;
+    int length = 0;                           //子列表长度
+    int current_selected = 0;
+    const int32_t* sub_option_ids = menu_display_rows[row_i].sub_texts;
 
-    lv_obj_t *sub_container = lv_obj_create(setting_layout);
-    lv_obj_set_size(sub_container, 128, lv_pct(100));
-    lv_obj_add_style(sub_container, &bg_style, 0);
-    lv_obj_set_style_bg_color(sub_container, COLOR_FFFFFF, 0);
-    lv_obj_set_style_clip_corner(sub_container, true, 0); // 启用圆角裁剪
-    lv_obj_set_style_radius(sub_container, 8, 0);
-    lv_obj_align(sub_container, LV_ALIGN_TOP_RIGHT, 0, 0);
-    lv_obj_set_scrollbar_mode(sub_container, LV_SCROLLBAR_MODE_OFF);
-    lv_obj_move_to_index(sub_container, -1);
+    if (menu_layout)
+    {
+        item_list = menu_sub_container[row_i];
+    }else if (setting_layout){
+        item_list = setting_sub_container[row_i];
+    }
 
-    // Flex 列布局，子项顶部对齐
-    lv_obj_set_style_pad_row(sub_container, 0, 0);
-    lv_obj_set_flex_flow(sub_container, LV_FLEX_FLOW_COLUMN);
+    if (item_list != NULL && lv_obj_is_valid(item_list )) {
+        printf("item_list != NULL && lv_obj_is_valid\n");
+        return NULL;
+    }
+
+    if (item_list) {
+        printf("item_list != NULL\n");
+        lv_delete_layout(&item_list);
+    }
+
+
+    if (menu_layout)
+    {
+        if (row_i < 0 || row_i > MAX_MENU_ROW_COUNT) return NULL;
+        while (sub_option_ids[length] != -1) {
+            length++;
+        }
+        current_selected = row_i <= 0 ? 0 : menu_items_data[row_i-1];     //选中的子项索引
+
+        item_list = lv_obj_create(menu_layout);
+        lv_obj_set_size(item_list, 123, lv_pct(100)); 
+        lv_obj_align(item_list, LV_ALIGN_TOP_RIGHT, 0, 0);
+
+    }else if (setting_layout){
+        length = get_sub_items_count(row_i);
+        current_selected = row_i == -1 ? 0 : get_task_list_idx(row_i);      //选中的子项索引
+        
+        item_list = lv_obj_create(setting_layout);
+        lv_obj_set_size(item_list, 123, g_current_layout == LAYOUT_VER ? 226 : 236); //实际高度228 : 实际高度236
+        lv_obj_align(item_list, LV_ALIGN_TOP_RIGHT, g_current_layout == LAYOUT_VER ? 0 : -10, g_current_layout == LAYOUT_VER ? 10 : 0);
+    }
+
+    lv_obj_add_style(item_list, &bg_style, 0);
+    lv_obj_set_style_bg_color(item_list, COLOR_D9D9D9, 0);
+    lv_obj_set_style_border_width(item_list, 4, 0);
+    lv_obj_set_style_border_color(item_list, COLOR_D9D9D9, 0);
+    lv_obj_set_style_border_opa(item_list, LV_OPA_100, 0);
+    lv_obj_set_style_clip_corner(item_list, true, 0); // 启用圆角裁剪
+    lv_obj_set_style_radius(item_list, 10, 0);
+    lv_obj_set_scrollbar_mode(item_list, LV_SCROLLBAR_MODE_OFF);
+    lv_obj_set_flex_flow(item_list, LV_FLEX_FLOW_COLUMN);    // Flex 列布局，子项 list_btn 顶部对齐
     lv_obj_set_flex_align(
-        sub_container,                         
+        item_list,                         
         LV_FLEX_ALIGN_START,              // 主轴(COLUMN)：子项从容器顶部开始排列
         LV_FLEX_ALIGN_CENTER,             // 交叉轴(ROW): 子项整体在容器内垂直居中   
         LV_FLEX_ALIGN_CENTER              // 交叉轴(ROW): 子项整体在容器内垂直居中     
     );
 
-    for (int child_i = 0; child_i < length; child_i++) {
-        setting_row_widgets_t child_btn = create_setting_row(sub_container, false);
-        lv_obj_add_flag(child_btn.title_img, LV_OBJ_FLAG_HIDDEN);
-        lv_obj_add_flag(child_btn.value_img, LV_OBJ_FLAG_HIDDEN);
-        lv_obj_add_flag(child_btn.value_label, LV_OBJ_FLAG_HIDDEN);
-        if (child_i == 0)
+    for (int child_i = 0; child_i < length; child_i ++) {
+        lv_obj_t* btn = lv_list_add_button(item_list, NULL, "item");
+        lv_obj_set_size(btn, lv_pct(100), 40);
+        lv_obj_remove_style(btn, NULL, LV_STATE_PRESSED);
+        lv_obj_add_style(btn, &bg_style, 0);
+        lv_obj_set_style_radius(btn, 10, 0);
+        lv_obj_set_flex_flow(btn, LV_FLEX_FLOW_ROW);         /* 让按钮内部的 label 在水平+垂直方向都居中 */
+        lv_obj_set_flex_align(btn,
+                            LV_FLEX_ALIGN_CENTER,   /* 主轴：水平居中 */
+                            LV_FLEX_ALIGN_CENTER,   /* 交叉轴：垂直居中 */
+                            LV_FLEX_ALIGN_CENTER);
+        lv_obj_set_style_text_font(btn, &font_isdtyahei_18_2, 0);
+        lv_obj_set_style_text_align(btn, LV_TEXT_ALIGN_CENTER, 0);
+        lv_obj_set_user_data(btn, (void*)(intptr_t)child_i);
+
+        if (child_i==current_selected) {
+            lv_obj_set_style_bg_color(btn, COLOR_0066FF, 0);
+            lv_obj_scroll_to_view(btn, LV_ANIM_OFF);
+            if (child_i > 3 && setting_layout && g_current_layout == LAYOUT_VER)
+            {
+                lv_obj_scroll_by(item_list, 0, -8, LV_ANIM_OFF);   // 对齐底部
+            }
+            lv_obj_set_style_text_color(btn, COLOR_FFFFFF, 0);
+            // lv_group_focus_obj(item_bg);
+        }else{
+            lv_obj_set_style_bg_color(btn, COLOR_D9D9D9, 0);
+            lv_obj_set_style_text_color(btn, COLOR_000000, 0);
+        }
+
+        /* 取出 button 里的 label（list_add_button 里最后一个子对象一般是 label） */
+        lv_obj_t* item_text = lv_obj_get_child(btn, -1);
+        if (menu_layout)
         {
-            lv_obj_add_flag(child_btn.line, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_add_event_cb(btn, menu_child_click_cb, LV_EVENT_ALL, NULL);
+
+            if (item_text) {
+                lv_label_set_text(item_text, GetLanguageString(sub_option_ids[child_i]));
+            }
+        }else if (setting_layout)
+        {
+            lv_obj_add_event_cb(btn, child_click_cb, LV_EVENT_ALL, NULL);
+            
+            if (item_text) {
+                update_single_item_value(row_i, item_text, child_i);
+            }
         }
- 
-        //高亮已选中索引
-        if (child_i == current_selected && child_btn.row_cont)
-        { 
-            lv_obj_add_state(child_btn.row_cont, LV_STATE_CHECKED);
-            lv_obj_scroll_to_view(child_btn.row_cont, LV_ANIM_OFF);                  //滚动定位
-        }
-
-        lv_obj_set_user_data(child_btn.row_cont, (void*)(intptr_t)child_i);          //保存每个子项的对应索引
-        lv_obj_add_event_cb(child_btn.row_cont, child_click_cb, LV_EVENT_ALL, NULL);
-
-        update_single_item_value(row_i, child_btn.title_label, child_i);
-
     }
 
-    return sub_container;
+        // if (setting_layout && g_current_layout == LAYOUT_HOR)
+    // {
+    //     // >>>  挂样式
+    //     lv_obj_add_style(item_list, &style_menu_slide_normal, 0);
+    //     lv_obj_add_style(item_list, &style_menu_slide_from_left, LV_STATE_USER_2);
+
+    //     // >>> 3) 动态设定起始偏移 = 屏幕宽度（右侧滑入用 +W，左侧滑入用 -W）
+    //     lv_coord_t w = lv_display_get_horizontal_resolution(NULL);
+    //     lv_obj_set_style_translate_x(item_list, -w, LV_STATE_USER_2);  // 从左往右滑入
+
+    //     // >>> 4) 进入 USER_2，对象先跳到左侧屏幕外
+    //     lv_obj_add_state(item_list, LV_STATE_USER_2);
+    // }else{
+    //     // >>>  挂样式
+    //     lv_obj_add_style(item_list, &style_menu_slide_normal_y, 0);
+    //     lv_obj_add_style(item_list, &style_menu_slide_normal_y, LV_STATE_USER_3);
+
+    //     // >>> 3) 动态设定起始偏移 = 屏幕高度（下侧滑入用 +h，上侧滑入用 -h）
+    //     lv_coord_t h = lv_display_get_vertical_resolution(NULL);
+    //     lv_obj_set_style_translate_y(item_list, h, LV_STATE_USER_3);  // 从下往上滑入
+
+    //     // >>> 4) 进入 USER_2，对象先跳到下侧屏幕外
+    //     lv_obj_add_state(item_list, LV_STATE_USER_3);
+    // }
+    // //同一帧内 add_state + clear_state，LVGL 检测不到属性变化,强制刷一帧，让 LVGL 记录 TRANSP
+    // lv_refr_now(NULL);     
+
+    // // >>> 清除透明状态 → 触发淡入
+    // if (setting_layout && g_current_layout == LAYOUT_HOR)
+    // {
+    //     lv_obj_clear_state(item_list, LV_STATE_USER_2);
+    // }else{
+    //     lv_obj_clear_state(item_list, LV_STATE_USER_3);
+    // }
+
+    lv_coord_t w = lv_display_get_horizontal_resolution(NULL);
+    lv_anim_t a;
+    lv_anim_init(&a);
+    lv_anim_set_var(&a, item_list);
+    lv_anim_set_values(&a, w, 0);
+    lv_anim_set_time(&a, row_i == 3 && setting_layout ? (g_current_layout == LAYOUT_HOR ? 700 : 350) : 300);        //ms,电流设置行有较多子项，加长动画时间体现平移效果
+    lv_anim_set_path_cb(&a, lv_anim_path_ease_out);
+    lv_anim_set_exec_cb(&a, anim_x_cb);
+    lv_anim_start(&a);
+
+
+    return item_list;
 }
 
+
+//增加选中的父项行背景
+static void update_setting_row_bg(int new_row){
+
+    cancel_selected_setting_row();
+
+    lv_obj_set_style_bg_opa(setting_mainlist[new_row].row_cont, LV_OPA_COVER, 0);
+    lv_obj_set_style_bg_color(setting_mainlist[new_row].row_cont, COLOR_808080, 0);
+
+    lv_obj_set_style_img_recolor(setting_mainlist[new_row].title_img, COLOR_FFFFFF, 0);
+    lv_obj_set_style_text_color(setting_mainlist[new_row].title_label, COLOR_FFFFFF, 0);
+
+}
 
 /**
  * @brief 任务设置父项行的点击事件
@@ -1423,80 +2040,125 @@ static void row_click_event_cb(lv_event_t *e)
 
     if(code == LV_EVENT_CLICKED)
     {
-        // printf("current_selected_taskrow_idx = %d, row_i = %d\n", current_selected_taskrow_idx, row_i);
+        if(row_i == MAX_SETTING_ROW_COUNT - 1){
+            printf("start task\n");
+            // on_language_changed();
+
+            // lv_obj_send_event(lv_obj_get_child(setting_mainlist[0].row_cont, 0), LV_EVENT_CLICKED,NULL);
+
+            return;
+
+        }
+
+        lv_obj_t* clicked_list = setting_sub_container[row_i];
+
+        printf("current_selected_taskrow_idx = %d, row_i = %d\n", current_selected_taskrow_idx, row_i);
         // ---------- 1. 点击的是当前展开的行 → 删除子列表 ----------
-        if (current_selected_taskrow_idx == row_i) {
-            lv_obj_t* sub = setting_sublist[current_selected_taskrow_idx];
-            if (sub) {
-                lv_obj_del(sub);
-                setting_sublist[current_selected_taskrow_idx] = NULL;  // 立即置空，防止悬空
-            }
-            // 清除父按钮的选中样式
-            lv_obj_clear_state(parent_btn, LV_STATE_CHECKED);
-            current_selected_taskrow_idx = -1;
+        if (current_selected_taskrow_idx == row_i && clicked_list) {
+            printf(">>> delete current_list\n");
+            lv_delete_layout(&setting_sub_container[current_selected_taskrow_idx]);
+            cancel_selected_setting_row();
             return;
         }
-
+      
         // ---------- 2. 点击的是新行 → 先删除旧行 ----------
-        if (current_selected_taskrow_idx != -1) {
-            // 清除旧父按钮样式
-            lv_obj_t* old_parent = setting_mainlist[current_selected_taskrow_idx].row_cont;
-            if (old_parent) {
-                lv_obj_remove_state(old_parent, LV_STATE_CHECKED);
-            }
-
-            // 删除旧的子容器
-            lv_obj_t* old_sub = setting_sublist[current_selected_taskrow_idx];
-            if (old_sub) {
-                lv_obj_del(old_sub);
-                setting_sublist[current_selected_taskrow_idx] = NULL;
+        // 点击了新行 -> 先隐藏旧行
+        if (current_selected_taskrow_idx > 0 && current_selected_taskrow_idx < MAX_SETTING_ROW_COUNT) {
+            lv_obj_t* old_list = setting_sub_container[current_selected_taskrow_idx];
+            if (old_list && lv_obj_is_valid(old_list)) {
+                printf(">>> delete old_list\n");
+                // 如果已经可见，滑出并隐藏
+                cancel_selected_setting_row();
+                lv_delete_layout(&setting_sub_container[current_selected_taskrow_idx]);
+                return;
             }
         }
+
 
         // ---------- 3. 创建并展开新行 ----------
-        // 获取当前行的子容器（理论上应为 NULL，因为旧行已被删除）
-        lv_obj_t* new_sub = setting_sublist[row_i];
-
-        // 若意外非空（比如异步删除尚未完成），先强制删除再重建（但通常不会发生）
-        if (new_sub) {
-            lv_obj_del(new_sub);
-            setting_sublist[row_i] = NULL;
-            new_sub = NULL;
+        // 获取当前行的子容器
+        if (!clicked_list) {
+            printf(">>> first build setting_item_list\n");
+            setting_sub_container[row_i] = add_item_list(row_i);
+            clicked_list = setting_sub_container[row_i];
         }
 
-        // 创建新的子容器
-        new_sub = create_sublist(row_i);
-        if (!new_sub) {
-            printf("create_sublist failed\n");
-            return;
-        }
-        setting_sublist[row_i] = new_sub;
+        printf(">>> update current_selected_taskrow_idx\n");
 
-
-        // 设置父按钮选中样式
-        lv_obj_add_state(parent_btn, LV_STATE_CHECKED);
+        // 更新背景并显示新行
+        update_setting_row_bg(row_i);
         current_selected_taskrow_idx = row_i;
+
     }
 }
 
 
 static void back_event_cb(lv_event_t *e)
 {
-    lv_obj_t* obj = lv_event_get_target(e); 
+   lv_obj_t* obj = lv_event_get_target(e); 
     lv_event_code_t code = lv_event_get_code(e);
     if (code == LV_EVENT_CLICKED)
     {
-        printf("back last page, last bar idx = %d \n", current_selected_bar_idx);
-        // bar_page_create();
-        on_language_changed();
+        printf("-》》》 setting page back -> bar page, current_batt_comp_idx = %d,  current_bar_idx = %d\n", current_selected_batt_comp_idx, current_selected_bar_idx);
+        
+        // printf("%d, %p\n", current_selected_taskrow_idx, setting_sub_container[current_selected_taskrow_idx] );
+        
+        //显示子列表时退出，需要删除子列表
+        if (setting_sub_container[current_selected_taskrow_idx]){
+            lv_delete_layout(&setting_sub_container[current_selected_taskrow_idx]);
+        }
+        lv_delete_layout(&setting_layout);
+
+        if (!bar_layout)
+        {
+            current_selected_bar_idx = -1;
+            bar_page_create();
+        }
+    }
+}
+
+
+static void show_setting_page_anim_cb(void * var, int32_t v)
+{   
+    lv_obj_t * obj = (lv_obj_t *)var;
+
+    printf("anim_x_cb called: v=%ld, obj=%p\n", v, obj);
+
+    /* v: 0 ~ 256，256 表示 1.0 倍（LVGL 缩放系数的 100%） */
+    lv_obj_set_style_transform_scale_x(obj, v, 0);
+    lv_obj_set_style_transform_scale_y(obj, v, 0);
+
+    if (v == 256)
+    {
+        //同一帧内 add_state + clear_state，LVGL 检测不到属性变化,强制刷一帧，让 LVGL 记录 TRANSP
+        lv_refr_now(NULL);     
+
+        // >>> 清除透明状态 → 触发淡入
+        lv_obj_clear_state(task_setting_text_cont, LV_STATE_USER_1);
+
+        refresh_setting_row_visibility();
+
+        if (bar_layout)
+        {
+            // printf("delete bar_layout\n");
+            lv_delete_layout(&bar_layout);
+        } 
+    
+        //bar page -> info page, 未删除 bar_layout
+        if (info_layout)
+        {
+            // printf("delete info_layout\n");
+            lv_delete_layout(&info_layout);
+        }
     }
 
 }
 
+
 /**
  * @brief 创建任务设置页面
  */
-void setting_page_create(){
+void setting_page_create(int new_bar_idx){
     if (setting_layout != NULL && lv_obj_is_valid(setting_layout)) {
         printf("setting_layout != NULL && lv_obj_is_valid\n");
         return;
@@ -1509,82 +2171,252 @@ void setting_page_create(){
     }
 
     setting_layout = lv_obj_create(lv_scr_act());
-    lv_obj_set_size(setting_layout, 320, 240);
-    lv_obj_set_y(setting_layout, 0);          // 垂直位置固定
-    lv_obj_set_x(setting_layout, 0);  // 初始：屏幕左侧外部
+    lv_obj_set_size(setting_layout, lv_pct(100), lv_pct(100));
     lv_obj_add_style(setting_layout, &bg_style, 0);
-    lv_obj_set_style_bg_color(setting_layout, COLOR_F9F9F9, LV_PART_MAIN); 
+    lv_obj_set_style_bg_color(setting_layout, COLOR_CLEAR, 0);
+    lv_obj_set_style_bg_opa(setting_layout, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_pad_all(setting_layout, 2, 0);
     lv_obj_remove_flag(setting_layout, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_scrollbar_mode(setting_layout, LV_SCROLLBAR_MODE_OFF);
+    lv_obj_align(setting_layout, LV_ALIGN_CENTER, 0, 0);
+    //设置变换支点到右上角，想让支点在左上角，就改成 (-bg_w/2, -bg_h/2)；想右下角就 (bg_w/2, bg_h/2)
+    lv_obj_set_style_transform_pivot_x(setting_layout,  320, 0);    // 向右 → 右边缘 bg_w / 2
+    lv_obj_set_style_transform_pivot_y(setting_layout,  -240, 0);   // 向上 → 上边缘 -bg_h / 2
+
+
+    layout_type_t g_current_layout = batt_coms[current_selected_batt_comp_idx].batt_cont_layout;
+    int idx_max = g_current_layout == LAYOUT_VER ? 4 : 2;
+
+    //避免 bar_row 透出底层对象
+    lv_obj_t* obj = lv_obj_create(setting_layout);
+    lv_obj_set_size(obj, 
+        g_current_layout == LAYOUT_VER ? 316 : 40, 
+        g_current_layout == LAYOUT_VER ? 40 : 236);
+        lv_obj_add_style(obj, &bg_style, 0);
+    lv_obj_set_style_bg_color(obj, COLOR_000000, 0);
+    lv_obj_align(obj, g_current_layout == LAYOUT_VER ? LV_ALIGN_TOP_MID : LV_ALIGN_RIGHT_MID, 0, 0);
+
+    lv_obj_t* bar_row = lv_obj_create(obj);
+    lv_obj_set_size(bar_row, 
+        g_current_layout == LAYOUT_VER ? 316 : 8, 
+        g_current_layout == LAYOUT_VER ? 8 : 236);
+    lv_obj_align(bar_row, g_current_layout == LAYOUT_VER ? LV_ALIGN_TOP_MID : LV_ALIGN_RIGHT_MID, 0, 0);
+    lv_obj_add_style(bar_row, &bg_style, 0);
+    lv_obj_set_style_bg_color(bar_row, COLOR_CLEAR, 0);
+    lv_obj_set_style_bg_opa(bar_row, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_pad_column(bar_row, g_current_layout == LAYOUT_VER ? 2 : 0, 0);
+    lv_obj_set_style_pad_row(bar_row, g_current_layout == LAYOUT_VER ? 0 : 10, 0);
+    lv_obj_set_style_pad_top(bar_row, g_current_layout == LAYOUT_VER ? 0 : 15, 0);
+    lv_obj_set_style_pad_bottom(bar_row, g_current_layout == LAYOUT_VER ? 0 : 15, 0);
+    lv_obj_set_grid_dsc_array(bar_row, 
+        g_current_layout == LAYOUT_VER ? four_grid_dsc : one_grid_dsc, 
+        g_current_layout == LAYOUT_VER ? one_grid_dsc : two_grid_dsc);
+
+        
+    for(int batt_idx = 0; batt_idx < idx_max; batt_idx++){
+        batt_t item;
+
+        item.bg = lv_obj_create(bar_row);
+        lv_obj_add_style(item.bg, &bg_style, 0);
+        lv_obj_set_style_bg_color(item.bg, COLOR_CLEAR, 0);
+        lv_obj_set_style_bg_opa(item.bg, LV_OPA_TRANSP, 0);
+        // 设置 grid 单元格位置，例如 i=0 -> 第0行第0列，i=1 -> 第0行第1列，i=2 -> 第0行第0列，i=3 -> 第0行第1列
+        lv_obj_set_grid_cell(item.bg, 
+            LV_GRID_ALIGN_STRETCH,  g_current_layout == LAYOUT_VER ? batt_idx : 0, 1, 
+            LV_GRID_ALIGN_STRETCH,  g_current_layout == LAYOUT_VER ? 0 : batt_idx, 1);
+
+        //进度条容器
+        item.bar_cont = lv_bar_create(item.bg);
+        lv_obj_add_style(item.bar_cont, &bg_style, 0);
+        lv_obj_set_size(item.bar_cont, 
+            g_current_layout == LAYOUT_VER ? lv_pct(100) : lv_pct(100), 
+            g_current_layout == LAYOUT_VER ? lv_pct(100) : lv_pct(100));
+        lv_obj_set_style_pad_all(item.bar_cont, 2, 0);
+        lv_obj_set_style_radius(item.bar_cont, 4, 0);
+        lv_obj_align(item.bar_cont, g_current_layout == LAYOUT_VER ? LV_ALIGN_TOP_MID : LV_ALIGN_RIGHT_MID, 0, 0);
+        lv_obj_set_style_bg_color(item.bar_cont, COLOR_262626, LV_PART_MAIN);
+        lv_obj_set_style_bg_opa(item.bar_cont, LV_OPA_COVER, LV_PART_MAIN);
+
+        //进度条
+        item.bar = lv_bar_create(item.bar_cont);
+        lv_obj_set_size(item.bar, 
+            g_current_layout == LAYOUT_VER ? 72 : 4, 
+            g_current_layout == LAYOUT_VER ? 4 : 94);
+        lv_obj_align(item.bar, LV_ALIGN_CENTER, 0, 0);
+        lv_obj_set_style_bg_color(item.bar, COLOR_262626, LV_PART_MAIN);
+        lv_obj_set_style_bg_opa(item.bar, LV_OPA_COVER, LV_PART_MAIN);
+        lv_obj_set_style_bg_color(item.bar, COLOR_262626, LV_PART_INDICATOR);
+        lv_obj_set_style_bg_opa(item.bar, LV_OPA_COVER, LV_PART_INDICATOR);
+        lv_obj_remove_flag(item.bar, LV_OBJ_FLAG_CLICKABLE);
+
+        //保存到数据结构体
+        setting_bar_conts[g_current_layout][batt_idx] = item;
+
+        //更新进度条
+        update_stanby_bar_value(current_selected_batt_comp_idx, g_current_layout == LAYOUT_VER ? batt_idx : batt_idx+4);
+    }
+
+    lv_obj_t* content_bg = lv_obj_create(setting_layout);
+    lv_obj_add_style(content_bg, &bg_style, 0);
+    lv_obj_set_style_bg_color(content_bg, COLOR_FFFFFF, 0); 
+    lv_obj_set_scrollbar_mode(content_bg, LV_SCROLLBAR_MODE_OFF); 
+    lv_obj_set_style_radius(content_bg, 10, 0);
+    lv_obj_set_style_clip_corner(content_bg, true, 0);
+    lv_obj_set_style_pad_row(content_bg, 0, 0);
+    if (g_current_layout == LAYOUT_VER) {
+        lv_obj_set_size(content_bg, 316, 226);                       
+        lv_obj_align(content_bg, LV_ALIGN_BOTTOM_MID, 0, 0);
+
+    }else{
+        lv_obj_set_size(content_bg, 306, 236);                 
+        lv_obj_align(content_bg, LV_ALIGN_LEFT_MID, 0, 0);
+    }
+
+
+    setting_mainlist[0].row_cont = lv_obj_create(content_bg);
+    lv_obj_add_style(setting_mainlist[0].row_cont, &bg_style, 0);
+    lv_obj_set_size(setting_mainlist[0].row_cont, lv_pct(100), 37);
+    lv_obj_set_style_bg_color(setting_mainlist[0].row_cont, COLOR_F2F2F2, 0);
+    lv_obj_set_style_bg_opa(setting_mainlist[0].row_cont, LV_OPA_100, 0);
+    lv_obj_align(setting_mainlist[0].row_cont, LV_ALIGN_TOP_MID, 0, 0);
+    lv_obj_set_flex_flow(setting_mainlist[0].row_cont, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(setting_mainlist[0].row_cont, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_left(setting_mainlist[0].row_cont, 7, 0);                  //title_img 与父级间距
+    lv_obj_set_style_pad_right(setting_mainlist[0].row_cont, 35, 0); 
+    lv_obj_clear_flag(setting_mainlist[0].row_cont, LV_OBJ_FLAG_CLICK_FOCUSABLE);    // 清除焦点事件，绑定点击回调
+
+    // 图像
+    setting_mainlist[0].title_img = lv_image_create(setting_mainlist[0].row_cont);
+    lv_obj_set_style_image_recolor_opa(setting_mainlist[0].title_img, LV_OPA_COVER, 0);
+    lv_img_set_src(setting_mainlist[0].title_img, tasksetting_display_rows[0].main_img);
+    lv_obj_set_style_img_recolor(setting_mainlist[0].title_img, COLOR_808080, 0);
+    lv_obj_set_style_translate_x(setting_mainlist[0].title_img, -7, 0);
+    // lv_image_set_inner_align(setting_mainlist[0].title_img, LV_IMAGE_ALIGN_LEFT_MID);   //调整内容层：实际的图像像素，它在对象内部的显示位置
+    //扩大点击范围
+    lv_obj_set_style_pad_left(setting_mainlist[0].title_img, 15, 0);
+    lv_obj_set_style_pad_right(setting_mainlist[0].title_img, 15, 0);
+    lv_obj_set_style_pad_top(setting_mainlist[0].title_img, 12, 0);
+    lv_obj_set_style_pad_bottom(setting_mainlist[0].title_img, 12, 0);
+
+    lv_obj_add_flag(setting_mainlist[0].title_img, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(setting_mainlist[0].title_img, back_event_cb, LV_EVENT_ALL, NULL);
+
+
+    // 标题
+    setting_mainlist[0].title_label = lv_label_create(setting_mainlist[0].row_cont);
+    lv_obj_set_style_text_color(setting_mainlist[0].title_label, COLOR_333333, 0);
+    lv_obj_set_style_text_font(setting_mainlist[0].title_label, &font_isdtyahei_18_2, 0);
+    lv_obj_set_style_text_align(setting_mainlist[0].title_label, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_style_pad_right(setting_mainlist[0].title_label, 23, 0);
+    lv_label_set_text(setting_mainlist[0].title_label, GetLanguageString(tasksetting_display_rows[0].main_text));
+    lv_obj_set_flex_grow(setting_mainlist[0].title_label, 1);
+
 
     // 文本行容器（可滚动）: 父容器使用 Flex 布局支持滚动
-    task_setting_text_cont = lv_obj_create(setting_layout);
-    lv_obj_set_size(task_setting_text_cont, lv_pct(100), 201);  //可视高度 240-1-38=201, 实现子对象总高度小于可视高度，仍可上下滚动
-    lv_obj_align(task_setting_text_cont, LV_ALIGN_TOP_LEFT, 0, 41);
+    task_setting_text_cont = lv_obj_create(content_bg);
     lv_obj_add_style(task_setting_text_cont, &bg_style, 0);
     lv_obj_set_style_bg_color(task_setting_text_cont, COLOR_CLEAR, 0);
     lv_obj_set_style_bg_opa(task_setting_text_cont, LV_OPA_TRANSP, 0);
     lv_obj_set_scrollbar_mode(task_setting_text_cont, LV_SCROLLBAR_MODE_OFF); 
-
-    
-    // Flex 列布局，子项顶部对齐
+    lv_obj_set_style_clip_corner(task_setting_text_cont, true, 0);
     lv_obj_set_style_pad_row(task_setting_text_cont, 0, 0);
     lv_obj_set_flex_flow(task_setting_text_cont, LV_FLEX_FLOW_COLUMN);
-    lv_obj_set_flex_align(
-        task_setting_text_cont,                         
-        LV_FLEX_ALIGN_START,              // 主轴(COLUMN)：子项从容器顶部开始排列
-        LV_FLEX_ALIGN_CENTER,             // 交叉轴(ROW): 子项整体在容器内垂直居中   
-        LV_FLEX_ALIGN_CENTER              // 交叉轴(ROW): 子项整体在容器内垂直居中     
-    );
+    lv_obj_set_flex_align( task_setting_text_cont,  LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_align(task_setting_text_cont, LV_ALIGN_TOP_MID, 0, 37);
+    lv_obj_set_size(task_setting_text_cont, lv_pct(100), g_current_layout == LAYOUT_VER ? 189 : 199);  //可视高度=实际高度 - 标题行高度37
 
     // 循环创建
-    for (int row_i = 0; row_i < MAX_SETTING_ROW_COUNT; row_i++) {
-        if (row_i == 0)
-        {     
-            setting_mainlist[0] = create_setting_row(setting_layout, true);
-            lv_obj_add_flag(setting_mainlist[0].line, LV_OBJ_FLAG_HIDDEN);
-            lv_obj_remove_flag(setting_mainlist[0].row_cont, LV_OBJ_FLAG_CHECKABLE);  
-            lv_obj_remove_style(setting_mainlist[0].row_cont, &style_row_selected, LV_STATE_CHECKED);
+    for (int i = 1; i < MAX_SETTING_ROW_COUNT; i++) {
+        setting_mainlist[i].row_cont = lv_obj_create(task_setting_text_cont);
+        lv_obj_set_size(setting_mainlist[i].row_cont, lv_pct(100), 41); 
+        lv_obj_add_style(setting_mainlist[i].row_cont, &bg_style, 0);
+        lv_obj_set_style_bg_color(setting_mainlist[i].row_cont, COLOR_CLEAR, 0);
+        lv_obj_set_style_bg_opa(setting_mainlist[i].row_cont, LV_OPA_TRANSP, 0);
+        lv_obj_set_flex_flow(setting_mainlist[i].row_cont, LV_FLEX_FLOW_ROW);
+        lv_obj_set_flex_align(setting_mainlist[i].row_cont, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+        lv_obj_set_style_pad_left(setting_mainlist[i].row_cont, 9, 0);
+        lv_obj_set_style_pad_right(setting_mainlist[i].row_cont, 9, 0);
+        lv_obj_set_style_pad_column(setting_mainlist[i].row_cont, 0, 0);
 
-            lv_obj_t* img_cont = lv_obj_create(setting_layout);
-            lv_obj_set_size(img_cont, 41, 41);
-            lv_obj_add_style(img_cont, &bg_style, 0);
-            lv_obj_set_style_bg_opa(img_cont, LV_OPA_TRANSP, 0);
-            lv_obj_set_style_bg_color(img_cont, COLOR_CLEAR, 0);
-            lv_obj_align(img_cont, LV_ALIGN_TOP_LEFT, 0, 0);
-            lv_obj_add_event_cb(img_cont, back_event_cb, LV_EVENT_ALL, NULL);
+        lv_obj_clear_flag(setting_mainlist[i].row_cont, LV_OBJ_FLAG_CLICK_FOCUSABLE); //滚动时不触发焦点事件 LV_EVENT_FOCUSED
+        lv_obj_set_user_data(setting_mainlist[i].row_cont, (void*)(intptr_t)i);//使用 intptr_t 保证可移植性
+        lv_obj_add_event_cb(setting_mainlist[i].row_cont, row_click_event_cb, LV_EVENT_ALL, NULL);
 
+        // --- 图像 ---
+        setting_mainlist[i].title_img = lv_image_create(setting_mainlist[i].row_cont);
+        lv_image_set_src(setting_mainlist[i].title_img, tasksetting_display_rows[i].main_img);
+        lv_obj_set_style_image_recolor_opa(setting_mainlist[i].title_img, LV_OPA_COVER, 0);
+        lv_obj_set_style_image_recolor(setting_mainlist[i].title_img, COLOR_4D4D4D, 0);
+        lv_obj_set_style_margin_right(setting_mainlist[i].title_img, 15, 0);
+
+        // --- 文本标签 1 ---
+        setting_mainlist[i].title_label = lv_label_create(setting_mainlist[i].row_cont);
+        lv_obj_set_style_text_color(setting_mainlist[i].title_label, COLOR_4D4D4D, 0);
+        lv_label_set_text(setting_mainlist[i].title_label, GetLanguageString(tasksetting_display_rows[i].main_text));
+        lv_obj_set_style_text_font(setting_mainlist[i].title_label, &font_isdtyahei_18_2, 0);
+        lv_obj_set_flex_grow(setting_mainlist[i].title_label, 1); // 撑满剩余空间 → 右侧元素自动贴右
+
+
+        if(i != MAX_SETTING_ROW_COUNT-1){
+            // // --- 文本标签 2 ---
+            setting_mainlist[i].value_label = lv_label_create(setting_mainlist[i].row_cont);
+            lv_obj_set_style_text_color(setting_mainlist[i].value_label, COLOR_000000, 0);
+            lv_label_set_text(setting_mainlist[i].value_label, "--");
+            lv_obj_set_style_text_font(setting_mainlist[i].value_label, &font_isdtyahei_18_2, 0);
+            lv_obj_set_style_margin_right(setting_mainlist[i].value_label, 9, 0);  
+
+            lv_obj_t* right_arrow = lv_image_create(setting_mainlist[i].row_cont);
+            lv_image_set_src(right_arrow, &img_right_arrow);
+            lv_obj_set_style_image_recolor_opa(right_arrow, LV_OPA_COVER, 0);
+            lv_obj_set_style_image_recolor(right_arrow, COLOR_000000, 0);
         }
-        else
-        {
-            bool is_last = (row_i == MAX_SETTING_ROW_COUNT - 1);
-            setting_mainlist[row_i] = create_setting_row(task_setting_text_cont, is_last);
-            
-            lv_obj_set_user_data(setting_mainlist[row_i].row_cont, (void *)(intptr_t)row_i);
-            lv_obj_add_event_cb(setting_mainlist[row_i].row_cont, row_click_event_cb, LV_EVENT_ALL, NULL);
-        }
-        // 更新图像、标题
-        const lv_image_dsc_t* icon = tasksetting_display_rows[row_i].main_img;
-        const char* main_display = GetLanguageString(tasksetting_display_rows[row_i].main_text);
-
-        lv_img_set_src(setting_mainlist[row_i].title_img, icon);
-        lv_label_set_text(setting_mainlist[row_i].title_label, main_display);
 
     }
 
     refresh_setting_row_visibility();
 
+    if (bar_layout)
+    {
+        // printf("delete bar_layout\n");
+        lv_delete_layout(&bar_layout);
+    } 
+
+    //bar page -> info page, 未删除 bar_layout
+    if (info_layout)
+    {
+        // printf("delete info_layout\n");
+        lv_delete_layout(&info_layout);
+    }
+
+    // // >>>  挂样式 + 先进入"透明状态"
+    // lv_obj_add_style(task_setting_text_cont, &style_menu_fade_normal, 0);
+    // lv_obj_add_style(task_setting_text_cont, &style_menu_transparent, LV_STATE_USER_1);
+    // lv_obj_add_state(task_setting_text_cont, LV_STATE_USER_1);     
+
+
+    // lv_coord_t cur_x = lv_obj_get_x(setting_layout);
+    // printf("setting_layout current x=%ld\n", cur_x);
+
+
+    // lv_anim_t a;
+    // lv_anim_init(&a);
+    // lv_anim_set_var(&a, setting_layout);
+    // lv_anim_set_values(&a, 0, 256);             // 0 → 1.0 倍缩放
+    // lv_anim_set_time(&a, 500);                  // ms，分成 6小部分
+    // lv_anim_set_path_cb(&a, lv_anim_path_ease_out);
+    // lv_anim_set_exec_cb(&a, show_setting_page_anim_cb);
+    // lv_anim_start(&a);
+
 }
 
 
+
+
 /**********************
- *   系统设置
+ *   菜单设置
  **********************/
 
- /**
- * @brief 切换语言
- */
-static void on_language_changed(){
+void on_language_changed(){
 
     // if (current_lang ==  GetCurrentLanguage()) return; // 语言没变，不处理
 
@@ -1593,30 +2425,343 @@ static void on_language_changed(){
 
     printf("current_lang= %d, GetCurrentLanguage()= %d\n", current_lang, GetCurrentLanguage());
 
-    int battI = GET_BATT_INDEX(current_selected_batt_comp_idx, current_selected_bar_idx);
-    for (int row = 0; row < MAX_SETTING_ROW_COUNT; row++) {
-        //标题
-        const char* main_display = GetLanguageString(tasksetting_display_rows[row].main_text);
-        lv_label_set_text(setting_mainlist[row].title_label, main_display);
-        
-        // value 
-        if (row == 1 || row == 2 || row == 3 || row == 5 || row == 6 || row == 7)       //1-电池类型, 2-任务, 3-电流, 5-充电电流, 6-放电电流, 7-循环次数
-        {
-            int item_idx = g_batt_data[battI].setting_items[row - 1];                   //0-电池类型, 1-任务, 2-电流, 4-充电电流, 5-放电电流, 6-循环次数
-            if (row == 6)
-            {
-                item_idx = 100;     //放电电流
-            }else if (row == 7)
-            {
-                item_idx = 5;       //循环次数
-            }
-            update_setting_row_value(row, item_idx);
-        }
-    }
+
+    // // int battI = GET_BATT_INDEX(selected_batt_comp_idx, info_selected_arc_comp_idx);
+
+    // // //更新子列表: 1, 2, 3, 5
+    // // update_item_list_value(1);
+    // // update_item_list_value(2);
+    // // update_item_list_value(3);
+    // // update_item_list_value(5);
+
+    // for (int row = 0; row < MAX_SETTING_ROW_COUNT; row++) {
+    //     //标题
+    //     if (!lv_obj_has_flag(setting_rows[row].row_cont, LV_OBJ_FLAG_HIDDEN)){
+    //         lv_label_set_text(setting_rows[row].title_label, GetLanguageString(setting_row_titles[row]));
+    //     //    lv_label_set_text(setting_rows[row].test_label, GetLanguageString(setting_row_titles[row]));
+    //     }
+
+    //     // value 
+    //     if (row > 0 && row < MAX_SETTING_ROW_COUNT - 1 ) {
+    //         lv_label_set_text(setting_rows[row].test_label, GetLanguageString(setting_row_titles[row]));
+    //          lv_label_set_text(setting_rows[row].value_label, GetLanguageString(setting_row_titles[row]));
+    //         // int item_idx = g_batt_data[battI].setting_items[row - 1];
+    //         // update_setting_row_value(row, item_idx);
+    //     }
+    // }
   
 }
 
+static void cancel_selected_menu_row(){
 
+    // printf("-》》》 cancel_selected_menu_row, current_selected_menu_idx = %d\n", current_selected_menu_idx);
+
+    if (current_selected_menu_idx == 0) return;
+
+    lv_obj_set_style_bg_opa(menu_mainlist[current_selected_menu_idx].row_cont, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_bg_color(menu_mainlist[current_selected_menu_idx].row_cont, COLOR_CLEAR, 0);
+
+    lv_obj_set_style_img_recolor(menu_mainlist[current_selected_menu_idx].title_img, COLOR_4D4D4D, 0);
+    lv_obj_set_style_text_color(menu_mainlist[current_selected_menu_idx].title_label, COLOR_4D4D4D, 0);
+
+}
+
+
+/**
+ * @brief  延时 100ms 再销毁子列表
+ */
+static void delete_callback(lv_timer_t* timer)
+{
+
+    lv_delete_layout(&menu_sub_container[current_selected_menu_idx]);
+    // 清除父按钮的选中样式
+    cancel_selected_menu_row();
+}
+
+static void menu_child_click_cb(lv_event_t *e)
+{
+    lv_obj_t* child_btn = lv_event_get_target(e);                   // 当前点击的子项行容器 row_cont 
+    lv_obj_t* sub_container = lv_obj_get_parent(child_btn);         // 子容器 layout
+    lv_event_code_t code = lv_event_get_code(e);
+
+
+    if (code == LV_EVENT_CLICKED)
+    {
+        // 检查当前展开的父项行索引是否有效
+        if (current_selected_menu_idx < 1 || current_selected_menu_idx >= MAX_MENU_ROW_COUNT) {
+            printf("Invalid current_selected_taskrow_idx: %d\n", current_selected_menu_idx);
+            return;
+        }
+
+        int current_selected_sub = menu_items_data[current_selected_menu_idx-1];            // 曾经选中的子项索引
+        int clicked_sub_idx = (int)(intptr_t)lv_obj_get_user_data(child_btn);               // 当前点击的子项索引
+
+        printf("-》》》 row(%d) child list olddata = %d, newdata = %d\n", 
+            current_selected_menu_idx, current_selected_sub, clicked_sub_idx);
+
+        // // ====== 1. 如果点击已选中子项 → 仅折叠（删除） ======
+        if (current_selected_sub == clicked_sub_idx) {
+            lv_delete_layout(&menu_sub_container[current_selected_menu_idx]);
+            
+            // 清除父按钮的选中样式
+            cancel_selected_menu_row();
+            return;
+        }
+
+        // ====== 2. 点击不同子项 → 切换选中 ======
+        // 清除旧选中
+        if (current_selected_sub >= 0) {
+            lv_obj_t* last_obj = lv_obj_get_child(sub_container, current_selected_sub);
+            if (last_obj && lv_obj_is_valid(last_obj)) {
+                lv_obj_set_style_bg_opa(last_obj, LV_OPA_TRANSP, 0);
+                lv_obj_set_style_text_color(lv_obj_get_child(last_obj, 0), COLOR_000000, 0);
+                // printf(" cancel last_idx \n");
+            }
+        }
+
+
+         // 设置新选中
+        if (child_btn && lv_obj_is_valid(child_btn)) {
+            lv_obj_set_style_bg_opa(child_btn, LV_OPA_COVER, 0);
+            lv_obj_set_style_bg_color(child_btn, COLOR_0066FF, 0);
+
+            lv_obj_set_style_text_color(lv_obj_get_child(child_btn, 0), COLOR_FFFFFF, 0);
+            // lv_obj_scroll_to_view(child_btn, LV_ANIM_OFF); //滚动定位
+        }
+
+
+        // 持久化到电池数据结构
+        menu_items_data[current_selected_menu_idx - 1] = clicked_sub_idx;
+
+        const int32_t* sub_option_ids = menu_display_rows[current_selected_menu_idx].sub_texts;
+        lv_label_set_text(menu_mainlist[current_selected_menu_idx].value_label, GetLanguageString(sub_option_ids[clicked_sub_idx]));
+
+
+        // ====== 3. 选择后自动折叠（删除子容器） ======
+        // 注意：子容器索引与父按钮索引，其实数值上一致
+        lv_refr_now(lv_display_get_default());      //手动强制刷新
+        // vTaskDelay(100 / portTICK_PERIOD_MS);       //延时100ms
+
+        //  GUI 开发中, LVGL 的非阻塞定时器事件
+        lv_timer_t * timer = lv_timer_create(delete_callback, 100, NULL);
+        lv_timer_set_repeat_count(timer, 1);                            // 重复次数为 1，执行完自动删除
+
+
+    }
+
+}
+
+
+static void menu_back_event_cb(lv_event_t *e)
+{
+    lv_obj_t* obj = lv_event_get_target(e); 
+    lv_event_code_t code = lv_event_get_code(e);
+    if (code == LV_EVENT_CLICKED)
+    {
+        printf("-》》》 menu page back, current_selected_menu_idx = %d \n", current_selected_menu_idx);
+
+        //显示子列表时退出，需要删除子列表
+        if (menu_sub_container[current_selected_menu_idx]){
+            lv_delete_layout(&menu_sub_container[current_selected_menu_idx]);
+        }
+        lv_delete_layout(&menu_layout);
+
+        if (!stanby_page_layout)
+        {
+            current_selected_batt_comp_idx = 0;
+            stanby_page_create();
+        }
+    }
+
+}
+
+
+
+static void update_menu_row_bg(int new_row){
+
+    cancel_selected_menu_row();
+
+    lv_obj_set_style_bg_opa(menu_mainlist[new_row].row_cont, LV_OPA_COVER, 0);
+    lv_obj_set_style_bg_color(menu_mainlist[new_row].row_cont, COLOR_808080, 0);
+
+    lv_obj_set_style_img_recolor(menu_mainlist[new_row].title_img, COLOR_FFFFFF, 0);
+    lv_obj_set_style_text_color(menu_mainlist[new_row].title_label, COLOR_FFFFFF, 0);
+
+}
+
+static void menu_row_click_event_cb(lv_event_t *e)
+{
+    lv_obj_t* parent_btn = lv_event_get_target(e);
+    task_settingrow_type_t row_i = (task_settingrow_type_t)(intptr_t)lv_obj_get_user_data(parent_btn);
+    lv_event_code_t code = lv_event_get_code(e);
+
+    if(code == LV_EVENT_CLICKED)
+    {
+        printf("-》》》 current_selected_menu_idx = %d, row_i = %d\n", current_selected_menu_idx, row_i);
+
+        lv_obj_t* clicked_list = menu_sub_container[row_i];
+
+        // ---------- 1. 点击的是当前展开的行 → 删除子列表 ----------
+        if (current_selected_menu_idx == row_i && clicked_list) {
+            lv_delete_layout(&menu_sub_container[current_selected_menu_idx]);
+            // 清除父按钮的选中样式
+            cancel_selected_menu_row();
+            return;
+        }
+
+        // ---------- 2. 点击的是新行 → 先删除旧行 ----------
+        if (current_selected_menu_idx > 0 && current_selected_menu_idx < MAX_MENU_ROW_COUNT) {
+            lv_obj_t* old_list = menu_sub_container[current_selected_menu_idx];
+            if (old_list && lv_obj_is_valid(old_list)) {
+                // 如果已经可见，滑出并隐藏
+                cancel_selected_menu_row();
+                lv_delete_layout(&menu_sub_container[current_selected_menu_idx]);
+
+                // printf("old_list is invalid,  return \n");
+                return;
+            }else{
+                // printf("old_list is invalid\n");
+            }
+        }
+
+        // ---------- 3. 创建并展开新行 ----------
+                // 获取当前行的子容器
+        if (!clicked_list) {
+            // printf(">>> first build setting_item_list2\n");
+            // create_menu_sublist(row_i);
+            menu_sub_container[row_i] = add_item_list(row_i);
+            clicked_list = menu_sub_container[row_i];
+        }
+        update_menu_row_bg(row_i);
+        current_selected_menu_idx = row_i;
+    }
+}
+
+
+void menu_page_create(void)
+{
+    if (menu_layout != NULL && lv_obj_is_valid(menu_layout)) {
+        printf("menu_layout != NULL && lv_obj_is_valid\n");
+        return;
+    }
+
+    if (menu_layout) {
+        printf("menu_layout != NULL\n");
+        lv_obj_del(menu_layout);
+        menu_layout = NULL;
+    }
+
+    menu_layout = lv_obj_create(lv_scr_act());
+    lv_obj_set_size(menu_layout, lv_pct(100), lv_pct(100));  
+    lv_obj_add_style(menu_layout, &bg_style, 0);
+    lv_obj_set_style_bg_color(menu_layout, COLOR_FFFFFF, 0); 
+    lv_obj_set_style_margin_all(menu_layout, 2, 0);
+    lv_obj_set_style_radius(menu_layout, 10, 0);
+    lv_obj_set_style_clip_corner(menu_layout, true, 0);
+    lv_obj_remove_flag(menu_layout, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_scrollbar_mode(menu_layout, LV_SCROLLBAR_MODE_OFF);
+    lv_obj_align(menu_layout, LV_ALIGN_CENTER, 0, 0);
+
+    // >>>  挂样式 + 先进入"透明状态"
+    lv_obj_add_style(menu_layout, &style_menu_fade_normal, 0);
+    lv_obj_add_style(menu_layout, &style_menu_transparent, LV_STATE_USER_1);
+    lv_obj_add_state(menu_layout, LV_STATE_USER_1);     /* 此刻 menu_layout 全透明 */
+
+    
+    menu_mainlist[0].row_cont = lv_obj_create(menu_layout);
+    lv_obj_add_style(menu_mainlist[0].row_cont, &bg_style, 0);
+    lv_obj_set_size(menu_mainlist[0].row_cont, lv_pct(100), 37);
+    lv_obj_set_style_bg_color(menu_mainlist[0].row_cont, COLOR_F2F2F2, 0);
+    lv_obj_set_style_bg_opa(menu_mainlist[0].row_cont, LV_OPA_100, 0);
+    lv_obj_align(menu_mainlist[0].row_cont, LV_ALIGN_TOP_MID, 0, 0);
+    lv_obj_set_flex_flow(menu_mainlist[0].row_cont, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(menu_mainlist[0].row_cont, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_left(menu_mainlist[0].row_cont, 7, 0); //title_img 与父级间距
+    lv_obj_set_style_pad_right(menu_mainlist[0].row_cont, 35, 0); 
+    lv_obj_clear_flag(menu_mainlist[0].row_cont, LV_OBJ_FLAG_CLICK_FOCUSABLE);    // 清除焦点事件，绑定点击回调
+
+    // 图像
+    menu_mainlist[0].title_img = lv_image_create(menu_mainlist[0].row_cont);
+    lv_obj_set_style_image_recolor_opa(menu_mainlist[0].title_img, LV_OPA_COVER, 0);
+    lv_img_set_src(menu_mainlist[0].title_img, menu_display_rows[0].main_img);
+    lv_obj_set_style_img_recolor(menu_mainlist[0].title_img, COLOR_808080, 0);
+    lv_obj_set_style_translate_x(menu_mainlist[0].title_img, -7, 0);
+    // lv_image_set_inner_align(setting_mainlist[0].title_img, LV_IMAGE_ALIGN_LEFT_MID);   //调整内容层：实际的图像像素，它在对象内部的显示位置
+    //扩大点击范围
+    lv_obj_set_style_pad_left(menu_mainlist[0].title_img, 15, 0);
+    lv_obj_set_style_pad_right(menu_mainlist[0].title_img, 15, 0);
+    lv_obj_set_style_pad_top(menu_mainlist[0].title_img, 12, 0);
+    lv_obj_set_style_pad_bottom(menu_mainlist[0].title_img, 12, 0);
+    lv_obj_set_style_transform_pivot_x(menu_mainlist[0].title_img, lv_pct(50), 0);   // 注意：状态传 0，即默认
+    lv_obj_set_style_transform_pivot_y(menu_mainlist[0].title_img, lv_pct(50), 0);
+    // scale 只在 PRESSED 状态下放大，256 = 100%, 280 ≈ 120%
+    lv_obj_set_style_transform_scale_x(menu_mainlist[0].title_img, 384, LV_STATE_PRESSED); 
+    lv_obj_set_style_transform_scale_y(menu_mainlist[0].title_img, 384, LV_STATE_PRESSED);
+
+    lv_obj_add_flag(menu_mainlist[0].title_img, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(menu_mainlist[0].title_img, menu_back_event_cb, LV_EVENT_ALL, NULL);
+
+
+    // 标题
+    menu_mainlist[0].title_label = lv_label_create(menu_mainlist[0].row_cont);
+    lv_obj_set_flex_grow(menu_mainlist[0].title_label, 1);
+    lv_obj_set_style_text_color(menu_mainlist[0].title_label, COLOR_333333, 0);
+    lv_obj_set_style_text_font(menu_mainlist[0].title_label, &font_isdtyahei_18_2, 0);
+    lv_obj_set_style_text_align(menu_mainlist[0].title_label, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_style_pad_right(menu_mainlist[0].title_label, 23, 0);
+    lv_label_set_text(menu_mainlist[0].title_label, GetLanguageString(menu_display_rows[0].main_text));
+
+
+    lv_obj_t* line = lv_obj_create(menu_layout);
+    lv_obj_set_size(line, lv_pct(100), 1);
+    lv_obj_add_style(line, &bg_style, 0);
+    lv_obj_set_style_bg_color(line, COLOR_999999, 0);
+    lv_obj_align(line, LV_ALIGN_TOP_MID, 0, 37);
+
+
+    // 文本行容器（可滚动）: 父容器使用 Flex 布局支持滚动
+    menu_text_cont = lv_obj_create(menu_layout);
+    lv_obj_add_style(menu_text_cont, &bg_style, 0);
+    lv_obj_set_style_bg_color(menu_text_cont, COLOR_CLEAR, 0);
+    lv_obj_set_style_bg_opa(menu_text_cont, LV_OPA_TRANSP, 0);
+    lv_obj_set_scrollbar_mode(menu_text_cont, LV_SCROLLBAR_MODE_OFF); 
+    lv_obj_set_style_clip_corner(menu_text_cont, true, 0);
+    lv_obj_set_style_pad_row(menu_text_cont, 0, 0);
+    lv_obj_set_flex_flow(menu_text_cont, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_flex_align( menu_text_cont,  LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_size(menu_text_cont, lv_pct(100), 203);   //可视高度=实际高度240 - 标题行高度37
+    lv_obj_align(menu_text_cont, LV_ALIGN_TOP_MID, 0, 38);
+
+    // 循环创建
+    for (int row_i = 1; row_i < sizeof(menu_display_rows) / sizeof(menu_display_rows[0]); row_i++) {
+        bool is_last = (row_i == MAX_SETTING_ROW_COUNT - 1);
+        menu_mainlist[row_i] = create_setting_row(menu_text_cont, is_last);
+
+        if (row_i == 1)
+        {
+            lv_obj_add_flag(menu_mainlist[row_i].line, LV_OBJ_FLAG_HIDDEN);
+        }
+
+        const int32_t* sub_option_ids = menu_display_rows[row_i].sub_texts;
+        lv_label_set_text(menu_mainlist[row_i].value_label, GetLanguageString(sub_option_ids[menu_items_data[row_i-1]]));
+        
+        lv_obj_set_user_data(menu_mainlist[row_i].row_cont, (void *)(intptr_t)row_i);
+        lv_obj_add_event_cb(menu_mainlist[row_i].row_cont, menu_row_click_event_cb, LV_EVENT_ALL, NULL);
+
+
+        // 更新图像、标题
+        lv_img_set_src(menu_mainlist[row_i].title_img, menu_display_rows[row_i].main_img);
+        lv_label_set_text(menu_mainlist[row_i].title_label, GetLanguageString(menu_display_rows[row_i].main_text));
+    }
+
+
+    //同一帧内 add_state + clear_state，LVGL 检测不到属性变化,强制刷一帧，让 LVGL 记录 TRANSP
+    lv_refr_now(NULL);     
+
+    // >>> 清除透明状态 → 触发淡入
+    lv_obj_clear_state(menu_layout, LV_STATE_USER_1);
+
+}
 
 /**********************
  *   信息页面
@@ -1628,6 +2773,7 @@ static void on_language_changed(){
 * @param batt_idx 电池索引
 */
 static void destroy_info_chart(int batt_idx) {
+    layout_type_t g_current_layout = batt_coms[current_selected_batt_comp_idx].batt_cont_layout;
     // 直接判断指针，不再依赖容易出错的标志位
     if (info_chart_timer != NULL) {
         printf(">>> battI(%d) lv_timer_del\n", batt_idx);
@@ -1702,6 +2848,7 @@ static void chart_timer_cb(lv_timer_t* timer) {
 * @param battI 电池索引
 */
 static void manage_chart_timer(int battI) {
+    layout_type_t g_current_layout = batt_coms[current_selected_batt_comp_idx].batt_cont_layout;
     // 1. 如果已有定时器在运行，先安全销毁（lv_timer_del 会自动处理 user_data 的释放逻辑，如果配置了的话，或者我们手动释放）
     if (info_chart_timer != NULL) {
         // 释放之前定时器绑定的内存
@@ -2002,82 +3149,209 @@ static void draw_event_cb(lv_event_t * e)
 
 }
 
+
+void info_page_back_event_cb(lv_event_t* e) 
+{
+    lv_obj_t* cont = lv_event_get_target(e);
+    int bar_idx = (int)(intptr_t)lv_obj_get_user_data(cont);
+    layout_type_t g_current_layout = batt_coms[current_selected_batt_comp_idx].batt_cont_layout;
+
+    // printf("-》》》 batt_coms[%d] layout(0-纵向,1-横向)=%d\n", 
+    //     current_selected_batt_comp_idx, g_current_layout);
+    // printf("-》》》 bar_idx=%d, current_selected_bar_idx=%d\n", bar_idx, current_selected_bar_idx);
+
+    printf("-》》》 bar(%d) info page back -> bar page, current_selected_bar_idx = %d\n", bar_idx, current_selected_bar_idx);
+
+    int ui_bar_idx = g_current_layout == LAYOUT_VER ? current_selected_bar_idx : current_selected_bar_idx-4;
+    chang_barcont_bar_border_color(g_current_layout, ui_bar_idx);
+    lv_obj_del(info_layout);
+    info_layout = NULL;
+    current_selected_bar_idx = -1;
+
+}
+ 
 /**
  * @brief 创建信息页面
  */
 static void info_page_create(int new_bar_idx){
+
+    const lv_color_t info_imgs_color[5] = {
+        COLOR_808080, COLOR_FF6600, COLOR_9E6EE8, COLOR_00C195, COLOR_3F85F5
+    }; 
+    static const lv_coord_t text_col_dsc[] = {42, 92, LV_GRID_FR(1), LV_GRID_TEMPLATE_LAST}; 
+
+    if (info_layout != NULL && lv_obj_is_valid(info_layout)) {
+        printf("info_layout != NULL && lv_obj_is_valid\n");
+        return;
+    }
+
     if (info_layout) {
         printf("info_layout != NULL\n");
         lv_obj_del(info_layout);
         info_layout = NULL;
     }
 
-    static const lv_coord_t text_col_dsc[] = {LV_GRID_FR(1), LV_GRID_FR(1), LV_GRID_FR(1), LV_GRID_TEMPLATE_LAST}; // 3列等宽
-    static const lv_coord_t text_row_dsc[] = {LV_GRID_FR(1), LV_GRID_FR(1), LV_GRID_FR(1), LV_GRID_FR(1), LV_GRID_FR(1), LV_GRID_TEMPLATE_LAST}; // 5行等高
-
-
     info_layout = lv_obj_create(lv_scr_act()); 
     lv_obj_add_style(info_layout, &bg_style, 0);
-    lv_obj_set_style_bg_color(info_layout, COLOR_00FF00, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(info_layout, COLOR_CLEAR, LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(info_layout, LV_OPA_TRANSP, 0);
+    lv_obj_set_scrollbar_mode(info_layout, LV_SCROLLBAR_MODE_OFF);
     lv_obj_set_style_radius(info_layout, 10, 0);
+    lv_obj_set_style_clip_corner(info_layout, true, 0);
 
+    layout_type_t g_current_layout = batt_coms[current_selected_batt_comp_idx].batt_cont_layout;
     if (g_current_layout == LAYOUT_VER) {
-        lv_obj_set_size(info_layout, lv_pct(100), 200);
-        lv_obj_align(info_layout, LV_ALIGN_BOTTOM_MID, 0, 0);
+        lv_obj_set_size(info_layout, 316, 226);  //实际高度216+ 圆角半径10
+        lv_obj_align(info_layout, LV_ALIGN_BOTTOM_MID, 0, 10);
+
     }else{
-        lv_obj_set_size(info_layout, 280, lv_pct(100));
-        lv_obj_align(info_layout, LV_ALIGN_LEFT_MID, 0, 0);
+        lv_obj_set_size(info_layout, 306, 236); //实际宽度296+圆角半径10
+        lv_obj_set_style_pad_left(info_layout, 10, 0 );
+        lv_obj_align(info_layout, LV_ALIGN_LEFT_MID, -10, 0);
     }
 
-    //创建 grid 布局： 3*5
-    lv_obj_t* info_text_cont = lv_obj_create(info_layout); 
-    lv_obj_set_size(info_text_cont, lv_pct(100), 120); 
+    // //清空子对象
+    // lv_obj_clean(info_layout);
+
+    lv_obj_t* title_row = lv_obj_create(info_layout);
+    lv_obj_set_size(title_row, lv_pct(100), 37); 
+    lv_obj_add_style(title_row, &bg_style, 0);
+    lv_obj_set_style_bg_color(title_row, COLOR_F2F2F2, LV_PART_MAIN);
+    lv_obj_align(title_row, 
+        g_current_layout == LAYOUT_VER ? LV_ALIGN_TOP_MID : LV_ALIGN_TOP_LEFT, 0, 0);
+
+    lv_obj_t *icon = lv_image_create(title_row);  
+    lv_image_set_src(icon, info_imgs[0]);
+    lv_obj_set_style_image_recolor_opa(icon, LV_OPA_COVER, 0);
+    lv_obj_set_style_image_recolor(icon, info_imgs_color[0], 0);
+    //扩大点击范围
+    lv_obj_set_style_pad_left(icon, 15, 0);
+    lv_obj_set_style_pad_right(icon, 15, 0);
+    lv_obj_set_style_pad_top(icon, 12, 0);
+    lv_obj_set_style_pad_bottom(icon, 12, 0);
+    // lv_obj_set_style_transform_pivot_x(icon, lv_pct(50), 0);   // 注意：状态传 0，即默认
+    // lv_obj_set_style_transform_pivot_y(icon, lv_pct(50), 0);
+    // // scale 只在 PRESSED 状态下放大，256 = 100%, 280 ≈ 120%
+    // lv_obj_set_style_transform_scale_x(icon, 384, LV_STATE_PRESSED); 
+    // lv_obj_set_style_transform_scale_y(icon, 384, LV_STATE_PRESSED);
+
+    lv_obj_add_flag(icon, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_user_data(icon, (void*)(intptr_t)new_bar_idx);
+    lv_obj_add_event_cb(icon, info_page_back_event_cb, LV_EVENT_CLICKED, NULL);
+
+
+    lv_obj_t *name_value = lv_obj_create(title_row);
+    lv_obj_set_size(name_value, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+    lv_obj_set_style_bg_opa(name_value, LV_OPA_0, 0);
+    lv_obj_set_style_border_width(name_value, 0, 0);
+    lv_obj_set_style_pad_all(name_value, 0, 0);
+    lv_obj_set_style_pad_column(name_value, 2, 0);  // 两个标签之间的间距
+    lv_obj_set_flex_flow(name_value, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(name_value, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_align(name_value, LV_ALIGN_CENTER, 0, 0);
+
+    lv_obj_t *name = lv_label_create(name_value);
+    lv_label_set_text(name, "--");
+    lv_obj_set_style_text_font(name, &font_isdtyahei_18_2, 0);
+
+    lv_obj_t *value = lv_label_create(name_value);
+    lv_label_set_text(value, "(--)");
+    lv_obj_set_style_text_font(value, &font_isdtyahei_18_2, 0);
+
+
+    lv_obj_t *setting_btn = lv_btn_create(title_row);  
+    lv_obj_remove_style_all(setting_btn);   // 清掉所有主题样式
+    lv_obj_set_size(setting_btn, 25, 24);
+    lv_obj_align(setting_btn, LV_ALIGN_RIGHT_MID, -7, 0);
+    lv_obj_set_style_radius(setting_btn, 6, 0);
+    lv_obj_set_style_bg_color(setting_btn, COLOR_FFFFFF, 0);
+    lv_obj_set_style_bg_opa(setting_btn, LV_OPA_100, 0);
+    lv_obj_set_style_border_color(setting_btn, COLOR_7F7F7F, 0);
+    lv_obj_set_style_border_opa(setting_btn, LV_OPA_100, 0);
+    lv_obj_set_style_border_width(setting_btn, 1, 0);
+    lv_obj_set_style_transform_pivot_x(setting_btn, lv_pct(50), 0);   // 注意：状态传 0，即默认
+    lv_obj_set_style_transform_pivot_y(setting_btn, lv_pct(50), 0);
+    // scale 只在 PRESSED 状态下放大，256 = 100%, 280 ≈ 120%
+    lv_obj_set_style_transform_scale_x(setting_btn, 384, LV_STATE_PRESSED); 
+    lv_obj_set_style_transform_scale_y(setting_btn, 384, LV_STATE_PRESSED);
+
+    lv_obj_set_user_data(setting_btn, (void*)(intptr_t)new_bar_idx);
+    lv_obj_add_event_cb(setting_btn, task_setting_click_event_cb, LV_EVENT_CLICKED, NULL);
+
+    lv_obj_t *setting_img = lv_image_create(setting_btn);  
+    lv_image_set_src(setting_img, &img_info_setting);
+    lv_obj_set_style_image_recolor_opa(setting_img, LV_OPA_COVER, 0);
+    lv_obj_set_style_image_recolor(setting_img, COLOR_262626, 0);
+    lv_obj_center(setting_img);
+
+
+    // 保存到全局数组
+    g_info_rows[g_current_layout][0].info_icon = icon;
+    g_info_rows[g_current_layout][0].info_label_name = name;
+    g_info_rows[g_current_layout][0].info_label_value = value;
+
+    lv_obj_t* cont = lv_obj_create(info_layout); 
+    lv_obj_set_size(cont, lv_pct(100), g_current_layout == LAYOUT_VER ? 179 : 199); //可视 = 实际高度 - 首行37
+    lv_obj_add_style(cont, &bg_style, 0);
+    lv_obj_align(cont, LV_ALIGN_TOP_MID, 0, 37); 
+    lv_obj_set_style_bg_color(cont, COLOR_FFFFFF, 0); 
+    lv_obj_set_style_border_color(cont, COLOR_CCCCCC, 0);
+    lv_obj_set_style_border_opa(cont, LV_OPA_100, 0);
+    lv_obj_set_style_border_width(cont, 1, 0);
+    lv_obj_set_style_border_side(cont, LV_BORDER_SIDE_TOP, 0);
+    lv_obj_set_scrollbar_mode(cont, LV_SCROLLBAR_MODE_OFF);
+    lv_obj_set_style_pad_bottom(cont, 10, 0);   //内边距
+
+    //创建 grid 布局： 3*4
+    lv_obj_t* info_text_cont = lv_obj_create(cont); 
+    lv_obj_set_size(info_text_cont, 251, 134); 
     lv_obj_add_style(info_text_cont, &bg_style, 0);
-    lv_obj_align(info_text_cont, LV_ALIGN_TOP_LEFT, 0, 0);
-    lv_obj_set_style_bg_color(info_text_cont, lv_color_hex(0x00b7e5), 0); 
-    //  lv_obj_set_style_bg_color(info_text_cont, COLOR_CLEAR, 0);
-    // lv_obj_set_style_bg_opa(info_text_cont, LV_OPA_TRANSP, 0);
-    lv_obj_set_grid_dsc_array(info_text_cont, text_col_dsc, text_row_dsc); 
-    
-    for(int row_idx=0; row_idx<5;row_idx++){
+    lv_obj_align(info_text_cont, LV_ALIGN_TOP_LEFT, 15, 5);
+    lv_obj_set_style_bg_color(info_text_cont, COLOR_CLEAR, 0);
+    lv_obj_set_style_bg_opa(info_text_cont, LV_OPA_TRANSP, 0);
+    lv_obj_set_grid_dsc_array(info_text_cont, text_col_dsc, four_grid_dsc); 
+
+
+    for(int row_idx=0; row_idx<4;row_idx++){
+
         // 创建每行的三个控件（图标、名称、值）
         lv_obj_t *icon = lv_image_create(info_text_cont);  
         lv_obj_t *name = lv_label_create(info_text_cont);
         lv_obj_t *value = lv_label_create(info_text_cont);
         
-        lv_image_set_src(icon, &img_batt_charge);
+        lv_image_set_src(icon, info_imgs[row_idx+1]);
         lv_obj_set_style_image_recolor_opa(icon, LV_OPA_COVER, 0);
-        lv_obj_set_style_image_recolor(icon, COLOR_FFFFFF, 0);
+        lv_obj_set_style_image_recolor(icon, info_imgs_color[row_idx+1], 0);
 
-        lv_obj_set_style_text_color(name, COLOR_FFFFFF, 0);
         lv_label_set_text(name, "--");
-        lv_obj_set_style_text_font(name, &font_isdtyahei_18, 0);
+        lv_obj_set_style_text_font(name, &font_isdtyahei_18_2, 0);
 
-        lv_obj_set_style_text_color(value, COLOR_FFFFFF, 0);
         lv_label_set_text(value, "--");
-        lv_obj_set_style_text_font(value, &font_isdtyahei_18, 0);
+        lv_obj_set_style_text_font(value, &font_isdtyahei_18_2, 0);
 
         // 设置它们在 Grid 中的位置（列索引 0,1,2）
-        lv_obj_set_grid_cell(icon, LV_GRID_ALIGN_STRETCH, 0, 1, LV_GRID_ALIGN_STRETCH, row_idx , 1);
+        lv_obj_set_grid_cell(icon, LV_GRID_ALIGN_START, 0, 1, LV_GRID_ALIGN_CENTER, row_idx , 1);
         lv_obj_set_grid_cell(name, LV_GRID_ALIGN_START, 1, 1, LV_GRID_ALIGN_CENTER, row_idx, 1);
         lv_obj_set_grid_cell(value, LV_GRID_ALIGN_START, 2, 1, LV_GRID_ALIGN_CENTER, row_idx, 1);
         
         // 保存到全局数组
-        g_info_rows[g_current_layout][row_idx].info_icon = icon;
-        g_info_rows[g_current_layout][row_idx].info_name = name;
-        g_info_rows[g_current_layout][row_idx].info_value = value;
+        g_info_rows[g_current_layout][row_idx+1].info_icon = icon;
+        g_info_rows[g_current_layout][row_idx+1].info_label_name = name;
+        g_info_rows[g_current_layout][row_idx+1].info_label_value = value;
     }
 
+
     //创建图表容器
-    lv_obj_t* temporary_placeholder = lv_obj_create(info_layout);
-    lv_obj_set_size(temporary_placeholder, lv_pct(100), 50);
-    lv_obj_align_to(temporary_placeholder, info_text_cont, LV_ALIGN_OUT_BOTTOM_MID , 0, 15);
+    lv_obj_t* temporary_placeholder = lv_obj_create(cont);
+    lv_obj_set_size(temporary_placeholder, 
+        g_current_layout == LAYOUT_VER ? 290 : 268, 50);
+    lv_obj_align(temporary_placeholder, LV_ALIGN_TOP_MID , 0, 154);
     lv_obj_add_style(temporary_placeholder, &bg_style, 0);
-    lv_obj_set_style_bg_color(temporary_placeholder, COLOR_CCCCCC, 0);
+    lv_obj_set_style_bg_color(temporary_placeholder, COLOR_F2F2F2, 0);
     lv_obj_set_style_bg_opa(temporary_placeholder, LV_OPA_COVER, 0);
     lv_obj_set_style_border_width(temporary_placeholder, 1, 0);
     lv_obj_set_style_border_opa(temporary_placeholder, LV_OPA_COVER, 0);
-    lv_obj_set_style_border_color(temporary_placeholder, COLOR_666666, 0);
+    lv_obj_set_style_border_color(temporary_placeholder, COLOR_CCCCCC, 0);
 
     lv_obj_t *label = lv_label_create(temporary_placeholder);
     lv_label_set_text(label, "chart");
@@ -2109,6 +3383,16 @@ static void info_page_create(int new_bar_idx){
     //     lv_chart_set_next_value(chart, ser, lv_rand(10, 80));
     // }
 
+        //更新文本
+    update_bar_batt_type_text(new_bar_idx, true);
+    update_bar_batt_volcur_text(new_bar_idx,  true);
+    update_bar_batt_time_text(new_bar_idx, true); 
+    update_batt_per_text(new_bar_idx);
+    update_batt_mah_text(new_bar_idx);
+    update_batt_ohms_text(new_bar_idx);
+    update_batt_temp_text(new_bar_idx); 
+    update_batt_wh_text(new_bar_idx);
+
 }
 
 /**********************
@@ -2116,43 +3400,254 @@ static void info_page_create(int new_bar_idx){
  **********************/
 
 
-void task_setting_click_event_cb(lv_event_t* e){
-    printf("first create task_setting_layout\n");
-    setting_page_create();
+static void info_timer_cb(lv_timer_t *t)
+{
+    layout_type_t g_current_layout = batt_coms[current_selected_batt_comp_idx].batt_cont_layout;
+    int actual_bar_idx = (int)(intptr_t)t->user_data;
+    int ui_bar_idx = g_current_layout == LAYOUT_VER ? actual_bar_idx : actual_bar_idx-4 ;
+
+    // int bar_max = g_current_layout == LAYOUT_VER ? 4 : 2;
+    // for (int i = 0; i < bar_max; i ++){
+    //     int batt_idx = GET_BATT_INDEX(current_selected_batt_comp_idx, g_current_layout == LAYOUT_VER ? i : i+4);
+    //     if (batt_idx >= MAX_BATT_TOTAL_COUNT) return;
+    //     batt_data_t* old_data = &g_batt_data[batt_idx];
+
+    //     lv_obj_set_style_border_color(bar_conts[g_current_layout][i].bar_cont, old_data->BatteryLoad == 0 ? COLOR_404040 : COLOR_999999, LV_PART_MAIN);
+    //     if (ui_bar_idx == i)
+    //     {
+    //         lv_obj_set_style_border_color(bar_conts[g_current_layout][ui_bar_idx].bar_cont, COLOR_CCCCCC, LV_PART_MAIN);
+    //     }
+    // }
+ chang_barcont_bar_border_color(g_current_layout, ui_bar_idx);
+
+    info_page_create(actual_bar_idx);
+    current_selected_bar_idx = actual_bar_idx;
+
+    lv_timer_delete(t);
+    // lv_obj_add_flag(lv_obj_get_child(bar_layout, -1), LV_OBJ_FLAG_HIDDEN);      //隐藏遮罩
 }
+
+ const lv_image_dsc_t* get_barbatt_workstatus_img(int32_t value){
+    switch (value) {
+        case ttCharge: return &img_bar_charge;
+        case ttDischarge: return &img_bar_discharge;
+        case ttStorage: return &img_bar_storage; 
+        case ttCycle: return &img_bar_cycle;
+        case ttAnalysis: return &img_bar_analyse; 
+        case ttActivate: return &img_bar_activate; 
+        case ttDestroy: return &img_bar_destory;
+        default: return &img_bar_none; 
+    }
+}
+
+void task_setting_click_event_cb(lv_event_t* e){
+    lv_obj_t* cont = lv_event_get_target(e);
+    int bar_idx = (int)(intptr_t)lv_obj_get_user_data(cont);
+    lv_event_code_t code = lv_event_get_code(e);
+
+    printf("-》》》 show task setting page, bar_idx = %d, current_selected_bar_idx = %d, %d\n", bar_idx, current_selected_bar_idx, code);
+
+    if (code == LV_EVENT_CLICKED)
+    {
+        if (!setting_layout)
+        {
+            //bar page -> setting page, current_selected_bar_idx = -1,  bar_idx 表示实际设置的电池索引
+            //info page 中途可能发生切换， -> setting page, current_selected_bar_idx 表示实际设置的电池索引
+            current_selected_bar_idx = bar_idx;
+            current_selected_taskrow_idx = 0;
+            setting_page_create(current_selected_bar_idx);
+        }
+
+    }
+}
+
 
 /**
 * @brief 进度条点击事件
 */
-void bar_cont_click_event_cb(lv_event_t* e) {
+void bar_cont_click_event_cb(lv_event_t* e) 
+{
     lv_obj_t* cont = lv_event_get_target(e);
-    int bar_idx = (int)(intptr_t)lv_obj_get_user_data(cont);
-    // int batt_idx = GET_BATT_INDEX(current_selected_batt_comp_idx, bar_idx);
-    printf("layout(0-纵向,1-横向)=%d, bar_idx=%d, current_selected_bar_idx=%d\n", g_current_layout, bar_idx, current_selected_bar_idx);
+    // int bar_idx = (int)(intptr_t)lv_obj_get_user_data(cont);            //当前点击的进度条 ui 索引,纵向： 0-3；横向: 0-1
+    // layout_type_t g_current_layout = batt_coms[current_selected_batt_comp_idx].batt_cont_layout;
 
-    if (info_layout && current_selected_bar_idx == bar_idx) {
-        // printf("double click, info_layout != NULL, will delete info_layout\n");
-        lv_obj_add_flag(bar_conts[g_current_layout][bar_idx].info_arrow, LV_OBJ_FLAG_HIDDEN);
+    printf("bar_cont_click_event_cb, %p \n", cont);
+    // int actual_bar_idx = g_current_layout == LAYOUT_VER ? bar_idx : bar_idx+4;      //电池数据索引，,纵向： 0-3；横向: 4-5
+    // int batt_idx = GET_BATT_INDEX(current_selected_batt_comp_idx, actual_bar_idx);
+    // if (batt_idx >= MAX_BATT_TOTAL_COUNT) return;
+    // batt_data_t* data = &g_batt_data[batt_idx];                         //当前点击的进度条对应的电池数据
 
-        lv_obj_del(info_layout);
-        info_layout = NULL;
-    }else if (info_layout && current_selected_bar_idx != bar_idx){
-        // printf("switch bar, info_layout != NULL, will translate arrow and update value\n");
 
-        //隐藏旧箭头
-        lv_obj_add_flag(bar_conts[g_current_layout][current_selected_bar_idx].info_arrow, LV_OBJ_FLAG_HIDDEN);
-        //显示新箭头
-        lv_obj_remove_flag(bar_conts[g_current_layout][bar_idx].info_arrow, LV_OBJ_FLAG_HIDDEN);
+    // // printf("-》》》 batt_coms[%d] layout(0-纵向,1-横向)=%d\n", 
+    // //     current_selected_batt_comp_idx, g_current_layout);
+    // printf("-》》》 click bar, actual_bar_idx = %d, current_selected_bar_idx = %d \n", actual_bar_idx, current_selected_bar_idx);
 
-    }else {
-        // printf("first create info_layout\n");
-        lv_obj_remove_flag(bar_conts[g_current_layout][bar_idx].info_arrow, LV_OBJ_FLAG_HIDDEN);
+    // if (data->BatteryLoad == 0 || data->TaskState == tsStandby)
+    // {
+    //     printf("-》》》 did not allow create info page, BatteryLoad = %d, TaskState = %d\n", data->BatteryLoad, data->TaskState);
+
+    //     if (!info_layout && bar_layout)
+    //     {
+    //         //测试
+    //         if (bar_layout)
+    //         {
+    //             lv_delete_layout(&bar_layout);
+    //         } 
+            
+    //         if (!stanby_page_layout)
+    //         {
+    //             current_selected_batt_comp_idx = 0;
+    //             stanby_page_create();
+    //         }
+    //     }
+
+    //     return;
+    // }
+
+
+    // if (info_layout && current_selected_bar_idx == actual_bar_idx)
+    // {
+    //     printf("-》》》 click double, info_layout != NULL, will delete info_layout\n");
+
+    //     chang_barcont_bar_border_color(g_current_layout, bar_idx);
+
+    //     destroy_info_chart(batt_idx);
+    //     lv_obj_del(info_layout);
+    //     info_layout = NULL;
+    //     current_selected_bar_idx = -1;
+
+    // }else if (info_layout && current_selected_bar_idx != actual_bar_idx){
+    //     printf("-》》》 switch bar, info_layout != NULL, will translate arrow and update value\n");
         
-        info_page_create(bar_idx);
+    //     int batt_idx = GET_BATT_INDEX(current_selected_batt_comp_idx, current_selected_bar_idx);
+    //     if (batt_idx >= MAX_BATT_TOTAL_COUNT) return;
+    //     batt_data_t* old_data = &g_batt_data[batt_idx];
+    //     int old_ui_idx = g_current_layout == LAYOUT_VER ? current_selected_bar_idx : current_selected_bar_idx-4;
 
+    //     // 恢复默认边框
+    //     lv_obj_set_style_border_color(bar_conts[g_current_layout][old_ui_idx].bar_cont, COLOR_404040, LV_PART_MAIN);
+    //     lv_obj_set_style_bg_color(bar_conts[g_current_layout][old_ui_idx].bar, 
+    //             old_data->BatteryLoad == 0 ? COLOR_1A1A1A : COLOR_999999, 
+    //             LV_PART_INDICATOR);
+    //     // 高亮边框
+    //     lv_obj_set_style_border_color(bar_conts[g_current_layout][bar_idx].bar_cont, COLOR_FFFFFF, LV_PART_MAIN);
+    //     lv_obj_set_style_bg_color(bar_conts[g_current_layout][bar_idx].bar, 
+    //             data->BatteryLoad == 0 ? COLOR_1A1A1A : get_batt_workstatus_color(data->work_status), 
+    //             LV_PART_INDICATOR);
+
+    //     destroy_info_chart(batt_idx);
+    //     current_selected_bar_idx = actual_bar_idx;
+    //     manage_chart_timer(GET_BATT_INDEX(current_selected_batt_comp_idx, current_selected_bar_idx));
+
+    //     //更新 infolayout 文本
+    //     update_bar_batt_type_text(actual_bar_idx, true);
+    //     update_bar_batt_volcur_text(actual_bar_idx,  true);
+    //     update_bar_batt_time_text(actual_bar_idx, true); 
+    //     update_batt_per_text(actual_bar_idx);
+    //     update_batt_mah_text(actual_bar_idx);
+    //     update_batt_ohms_text(actual_bar_idx);
+    //     update_batt_temp_text(actual_bar_idx); 
+    //     update_batt_wh_text(actual_bar_idx);
+
+    // }else if (!info_layout){
+    //     printf("-》》》 first create info_layout\n");
+    //     chang_barcont_bar_border_color(g_current_layout, bar_idx);
+    //     info_page_create(actual_bar_idx);
+    //     current_selected_bar_idx = actual_bar_idx;
+
+    //     // printf("-》》》 first create info_layout\n");
+    //     // bar_ripple_restart(g_current_layout, bar_idx);
+    //     // uint32_t total_ms = (RIPPLE_NUM - 1) * 200 + 1500;   // 最后一圈播完的时刻
+    //     // lv_timer_t *t = lv_timer_create(info_timer_cb, total_ms, (void *)(intptr_t)actual_bar_idx);
+    //     // lv_timer_set_repeat_count(t, 1);                     // 只执行一次
+    // }
+    
+}
+
+
+/**
+ * @brief 更新进度条状态图像
+ * @param bar_idx 进度条索引, 0-3: 纵向电池，4-5：横向电池
+ */
+void update_bar_batt_img(int bar_idx)
+{
+    int batt_idx = GET_BATT_INDEX(current_selected_batt_comp_idx, bar_idx);
+    if (batt_idx >= MAX_BATT_TOTAL_COUNT) return;
+    batt_data_t* data = &g_batt_data[batt_idx];
+    layout_type_t g_current_layout = batt_coms[current_selected_batt_comp_idx].batt_cont_layout;
+    batt_t b = bar_conts[g_current_layout][g_current_layout == LAYOUT_VER ? bar_idx : bar_idx-4]; 
+    int newvalue = data->TaskState == tsStandby ? -1 : data->work_status;
+
+    if (b.workstatus_img) 
+    {
+        lv_image_set_src(b.workstatus_img, data->BatteryLoad == 0 ? &img_bar_none : get_barbatt_workstatus_img(newvalue));
+    }
+}
+
+
+
+
+/**
+ * @brief 更新进度条页面的第 bar_idx 个电池状态颜色
+ * @param batt_comp_idx 电池仓索引
+ * @param bar_idx 进度条索引, 0-3: 纵向电池，4-5：横向电池
+ * @param newvalue 工作状态
+ */
+static void update_bar_batt_workstatus(int bar_idx)
+{
+    int batt_idx = GET_BATT_INDEX(current_selected_batt_comp_idx, bar_idx);
+    if (batt_idx >= MAX_BATT_TOTAL_COUNT) return;
+    batt_data_t* data = &g_batt_data[batt_idx];
+    layout_type_t g_current_layout = batt_coms[current_selected_batt_comp_idx].batt_cont_layout;
+    batt_t b = bar_conts[g_current_layout][g_current_layout == LAYOUT_VER ? bar_idx : bar_idx-4]; 
+    int newvalue = data->TaskState == tsStandby ? -1 : data->work_status;
+
+    // printf("-》》》 bar page batt(%d) workstatus = %d, BatteryLoad = %d, TaskState = %d\n", batt_idx, newvalue, data->BatteryLoad, data->TaskState);
+
+    lv_obj_t* parent = lv_obj_get_parent(b.setting_img);
+    if (data->BatteryLoad == 0)
+    {
+        lv_obj_add_flag(parent, LV_OBJ_FLAG_HIDDEN);
+    }else{
+        lv_obj_remove_flag(parent, LV_OBJ_FLAG_HIDDEN);
     }
 
-    current_selected_bar_idx = bar_idx;
+    if (b.bar_cont)
+    {
+        lv_obj_set_style_bg_color(b.bar_cont, data->BatteryLoad == 0 ? COLOR_1A1A1A : COLOR_262626, LV_PART_MAIN);
+        lv_obj_set_style_border_color(b.bar_cont, data->BatteryLoad == 0 ? COLOR_404040 : COLOR_999999, LV_PART_MAIN);
+    }
+    if (b.bar)
+    {
+        lv_obj_set_style_bg_color(b.bar, data->BatteryLoad == 0 ? COLOR_1A1A1A : COLOR_0D0D0D, LV_PART_MAIN);
+        lv_obj_set_style_bg_color(b.bar, data->BatteryLoad == 0 ? COLOR_1A1A1A : get_batt_workstatus_color(newvalue), LV_PART_INDICATOR);
+    }
+
+    if (b.batt_body)
+    {
+        lv_obj_set_style_bg_color(b.batt_body, data->BatteryLoad == 0 ? COLOR_0D0D0D : COLOR_1A1A1A, LV_PART_MAIN);
+        lv_obj_set_style_border_color(b.batt_body, data->BatteryLoad == 0 ? COLOR_404040 : COLOR_999999, LV_PART_MAIN);
+    }
+
+    if (b.workstatus_img) 
+    {
+        lv_obj_set_style_image_recolor(b.workstatus_img, data->BatteryLoad == 0 ? COLOR_000000 : get_batt_workstatus_color(newvalue), 0);
+    }
+
+    if (b.type_label)
+    {
+        lv_obj_set_style_text_color(b.type_label, data->BatteryLoad == 0 ? COLOR_4D4D4D : COLOR_FFFFFF, 0);
+    }
+    
+    if (b.volcur_label)
+    {
+        lv_obj_set_style_text_color(b.volcur_label, data->BatteryLoad == 0 ? COLOR_4D4D4D : COLOR_FFFFFF, 0);
+    }
+    
+    if (b.time_label)
+    {
+        lv_obj_set_style_text_color(b.time_label, data->BatteryLoad == 0 ? COLOR_4D4D4D : COLOR_FFFFFF, 0);
+    }
 
 }
 
@@ -2161,170 +3656,475 @@ void bar_cont_click_event_cb(lv_event_t* e) {
 */
 static void bar_page_create(){
 
+    if (bar_layout != NULL && lv_obj_is_valid(bar_layout)) {
+        printf("bar_layout != NULL && lv_obj_is_valid\n");
+        return;
+    }
+
     if (bar_layout) {
         printf("bar_layout != NULL\n");
         lv_obj_del(bar_layout);
         bar_layout = NULL;
     }
 
+    // printf("-》》》 create bar page , current_selected_batt_comp_idx= %d, current_bar_idx = %d \n", current_selected_batt_comp_idx, current_selected_bar_idx );
+
+    layout_type_t g_current_layout = batt_coms[current_selected_batt_comp_idx].batt_cont_layout;
+    int idx_max = g_current_layout == LAYOUT_VER ? 4 : 2;
+
     bar_layout = lv_obj_create(lv_scr_act());
     lv_obj_set_size(bar_layout, lv_pct(100), lv_pct(100));
     lv_obj_align(bar_layout, LV_ALIGN_TOP_LEFT, 0, 0);
     lv_obj_add_style(bar_layout, &bg_style, 0);
     lv_obj_set_style_bg_color(bar_layout, COLOR_000000, LV_PART_MAIN);
-
-    int idx_max = g_current_layout == LAYOUT_VER ? 4 : 2;
-    for(int idx = 0; idx < idx_max; idx++){
-        // 创建进度条容器
-        bar_conts[g_current_layout][idx].cont = lv_obj_create(bar_layout);
-        lv_obj_add_style(bar_conts[g_current_layout][idx].cont, &bg_style, 0);
-        lv_obj_set_style_bg_color(bar_conts[g_current_layout][idx].cont, COLOR_000000, 0);
-        lv_obj_set_user_data(bar_conts[g_current_layout][idx].cont, (void*)(intptr_t)idx);
-        lv_obj_add_event_cb(bar_conts[g_current_layout][idx].cont, bar_cont_click_event_cb, LV_EVENT_CLICKED, NULL);
-    
-
-        // 创建进度条
-        bar_conts[g_current_layout][idx].bar = lv_bar_create(bar_conts[g_current_layout][idx].cont);
-        lv_obj_set_style_radius(bar_conts[g_current_layout][idx].bar, 17, 0);
-        lv_obj_set_style_radius(bar_conts[g_current_layout][idx].bar, 17, LV_PART_INDICATOR);
-        lv_obj_set_style_bg_color(bar_conts[g_current_layout][idx].bar, COLOR_4D4D4D, LV_PART_MAIN);
-        lv_obj_set_style_bg_opa(bar_conts[g_current_layout][idx].bar, LV_OPA_COVER, LV_PART_MAIN);
-        lv_obj_set_style_border_width(bar_conts[g_current_layout][idx].bar, 0, LV_PART_MAIN);
-        lv_obj_set_style_bg_color(bar_conts[g_current_layout][idx].bar, lv_color_hex(0xff6600ff), LV_PART_INDICATOR);
-        lv_obj_set_style_bg_opa(bar_conts[g_current_layout][idx].bar, LV_OPA_COVER, LV_PART_INDICATOR);
-        lv_obj_remove_flag(bar_conts[g_current_layout][idx].bar, LV_OBJ_FLAG_CLICKABLE);
-        
-        //创建图像容器
-        lv_obj_t* img_cont = lv_obj_create(bar_conts[g_current_layout][idx].cont);
-         lv_obj_set_size(img_cont, lv_pct(100), 46);
-        lv_obj_add_style(img_cont, &bg_style, 0);
-        lv_obj_set_style_bg_color(img_cont, COLOR_4D4D4D, 0);
-        lv_obj_set_style_radius(img_cont, 13, 0);
-        // lv_obj_remove_flag(img_cont, LV_OBJ_FLAG_CLICKABLE);
-        lv_obj_add_event_cb(img_cont, task_setting_click_event_cb, LV_EVENT_CLICKED, NULL);
-    
+    lv_obj_set_style_pad_column(bar_layout, 0, 0);
+    lv_obj_set_style_pad_row(bar_layout, g_current_layout == LAYOUT_VER ? 0 : 10, 0);
+    lv_obj_set_style_pad_top(bar_layout, g_current_layout == LAYOUT_VER ? 0 : 15, 0);
+    lv_obj_set_style_pad_bottom(bar_layout, g_current_layout == LAYOUT_VER ? 0 : 15, 0);
+    lv_obj_set_grid_dsc_array(bar_layout, 
+        g_current_layout == LAYOUT_VER ? four_grid_dsc : one_grid_dsc, 
+        g_current_layout == LAYOUT_VER ? one_grid_dsc : two_grid_dsc);
 
 
-        //创建工作状态图像
-        bar_conts[g_current_layout][idx].workstatus_img = lv_image_create(img_cont);
-        lv_img_set_src(bar_conts[g_current_layout][idx].workstatus_img, &img_batt_charge);
-        lv_obj_center(bar_conts[g_current_layout][idx].workstatus_img);
-        lv_obj_set_style_image_recolor_opa(bar_conts[g_current_layout][idx].workstatus_img, LV_OPA_COVER, 0);
-        lv_obj_set_style_image_recolor(bar_conts[g_current_layout][idx].workstatus_img, COLOR_FFFFFF, 0);
-    
+    // //清空子对象
+    // lv_obj_clean(bar_layout);
 
-        //创建一个标签容器
-        lv_obj_t* label_cont = lv_obj_create(bar_conts[g_current_layout][idx].cont);
-        lv_obj_set_size(label_cont, 79, 68); //自适应
-        lv_obj_add_style(label_cont, &bg_style, 0);
-        lv_obj_set_style_bg_color(label_cont, COLOR_CLEAR, 0);
-        lv_obj_set_style_bg_opa(label_cont, LV_OPA_TRANSP, 0);
-        lv_obj_set_style_text_align(label_cont, LV_TEXT_ALIGN_CENTER, 0);
-        lv_obj_remove_flag(label_cont, LV_OBJ_FLAG_CLICKABLE); //label_cont 以及它的任何子对象都不会响应点击事件
-        lv_obj_set_flex_flow(label_cont, LV_FLEX_FLOW_COLUMN);// 设置 Flex 列布局，主轴居中（垂直），交叉轴居中（水平）
-        lv_obj_set_flex_align(label_cont, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    for(int batt_idx = 0; batt_idx < idx_max; batt_idx++){
+        batt_t item;
 
-        // 创建标签
-        bar_conts[g_current_layout][idx].type_label = lv_label_create(label_cont);
-        lv_obj_set_style_text_color(bar_conts[g_current_layout][idx].type_label, COLOR_FFFFFF, 0);
-        lv_obj_set_style_text_font(bar_conts[g_current_layout][idx].type_label, (lv_font_t *)&font_isdtyahei_18, 0);
-        lv_label_set_text(bar_conts[g_current_layout][idx].type_label, "NiMH");
-        //自动换行。文本会在超过标签宽度时自动换到下一行，并自动增加标签的高度
-        lv_label_set_long_mode(bar_conts[g_current_layout][idx].type_label, LV_LABEL_LONG_MODE_WRAP); 
-        lv_obj_set_style_text_letter_space(bar_conts[g_current_layout][idx].type_label, -1.5, 0);// 将字符间距缩小 2 个像素
+        item.bg = lv_obj_create(bar_layout);
+        lv_obj_add_style(item.bg, &bg_style, 0);
+        lv_obj_set_style_bg_color(item.bg, COLOR_CLEAR, 0);
+        lv_obj_set_style_bg_opa(item.bg, LV_OPA_TRANSP, 0);
+        lv_obj_set_style_pad_all(item.bg, 2, 0);
+        // 设置 grid 单元格位置，例如 i=0 -> 第0行第0列，i=1 -> 第0行第1列，i=2 -> 第0行第0列，i=3 -> 第0行第1列
+        lv_obj_set_grid_cell(item.bg, 
+            LV_GRID_ALIGN_STRETCH,  g_current_layout == LAYOUT_VER ? batt_idx : 0, 1, 
+            LV_GRID_ALIGN_STRETCH,  g_current_layout == LAYOUT_VER ? 0 : batt_idx, 1);
 
 
-        //创建信息页面箭头
-        bar_conts[g_current_layout][idx].info_arrow = lv_image_create(bar_conts[g_current_layout][idx].cont);
-        lv_image_set_src(bar_conts[g_current_layout][idx].info_arrow, &img_right_arrow);
-        lv_obj_set_style_image_recolor_opa(bar_conts[g_current_layout][idx].info_arrow, LV_OPA_COVER, 0);
-        lv_obj_set_style_image_recolor(bar_conts[g_current_layout][idx].info_arrow, COLOR_FFFFFF, 0);
-        lv_obj_add_flag(bar_conts[g_current_layout][idx].info_arrow, LV_OBJ_FLAG_HIDDEN);
+        //进度条容器
+        item.bar_cont = lv_bar_create(item.bg);
+        lv_obj_add_style(item.bar_cont, &bg_style, 0);
+        lv_obj_set_size(item.bar_cont, 
+            g_current_layout == LAYOUT_VER ? lv_pct(100) : 20, 
+            g_current_layout == LAYOUT_VER ? 20 : lv_pct(100));     //lv_pct(100)=76 : lv_pct(100)=100
+        lv_obj_align(item.bar_cont, g_current_layout == LAYOUT_VER ? LV_ALIGN_TOP_MID : LV_ALIGN_RIGHT_MID, 0, 0);
+        lv_obj_set_style_pad_all(item.bar_cont, 3, 0);
+        lv_obj_set_style_radius(item.bar_cont, 10, 0);
+        lv_obj_set_style_bg_color(item.bar_cont, COLOR_1A1A1A, LV_PART_MAIN);
+        lv_obj_set_style_bg_opa(item.bar_cont, LV_OPA_COVER, LV_PART_MAIN);
+        lv_obj_set_style_border_width(item.bar_cont, 2, LV_PART_MAIN);
+        lv_obj_set_style_border_color(item.bar_cont, COLOR_404040, LV_PART_MAIN);
+        lv_obj_set_style_border_opa(item.bar_cont, LV_OPA_COVER, LV_PART_MAIN);
+        lv_obj_set_style_transform_pivot_x(item.bar_cont, lv_pct(50), 0);   // 注意：状态传 0，即默认
+        lv_obj_set_style_transform_pivot_y(item.bar_cont, lv_pct(50), 0);
+        // scale 只在 PRESSED 状态下放大，256 = 100%
+        lv_obj_set_style_transform_scale_x(item.bar_cont, g_current_layout == LAYOUT_VER ? 263 : 282, LV_STATE_PRESSED);   // 78 / (lv_pct(100)-pad_top-pad_bottom=76) *256
+        lv_obj_set_style_transform_scale_y(item.bar_cont, g_current_layout == LAYOUT_VER ? 282 : 261, LV_STATE_PRESSED);   // 22 / 20 *256
 
-        if (g_current_layout == LAYOUT_VER) {
-            lv_obj_set_size(bar_conts[g_current_layout][idx].cont, 79, lv_pct(100));
-            lv_obj_set_pos(bar_conts[g_current_layout][idx].cont, idx*79 + (idx < 1 ? idx : idx+1), 0);  // 设置X位置
+
+        //进度条
+        item.bar = lv_bar_create(item.bar_cont);
+        lv_obj_set_size(item.bar, lv_pct(100), lv_pct(100));
+        lv_obj_align(item.bar, LV_ALIGN_CENTER, 0, 0);
+        lv_obj_set_style_bg_color(item.bar, COLOR_0D0D0D, LV_PART_MAIN);
+        lv_obj_set_style_bg_opa(item.bar, LV_OPA_COVER, LV_PART_MAIN);
+        lv_obj_set_style_bg_color(item.bar, COLOR_999999, LV_PART_INDICATOR);
+        lv_obj_set_style_bg_opa(item.bar, LV_OPA_COVER, LV_PART_INDICATOR);
+        lv_obj_remove_flag(item.bar, LV_OBJ_FLAG_CLICKABLE);
             
-            // 创建分割线
-            if(idx < 3){
-                lv_obj_t* center_line = lv_obj_create(bar_layout);
-                lv_obj_set_size(center_line, 1, 209);
-                lv_obj_add_style(center_line, &bg_style, 0);
-                lv_obj_set_style_bg_color(center_line, COLOR_666666, 0);
-                lv_obj_align(center_line, LV_ALIGN_TOP_LEFT, (idx+1)*80, 5);
-            }
-
-            lv_bar_set_orientation(bar_conts[g_current_layout][idx].bar, LV_BAR_ORIENTATION_VERTICAL);
-            lv_obj_set_size(bar_conts[g_current_layout][idx].bar, 34, 126);
-            lv_obj_align(bar_conts[g_current_layout][idx].bar, LV_ALIGN_TOP_MID, 0, 5);
-
-           
-            lv_obj_align(img_cont, LV_ALIGN_BOTTOM_MID, 0, -4);
-                    
-            // 将 label_cont 顶部对齐到进度条底侧外部,相距13个单位，垂直居中
-            lv_obj_align_to(label_cont, bar_conts[g_current_layout][idx].bar, LV_ALIGN_OUT_BOTTOM_MID, 0, 13);
-
-
-            lv_obj_align(bar_conts[g_current_layout][idx].info_arrow, LV_ALIGN_TOP_MID, 0, 20);
+        //电池身体
+        item.batt_body = lv_obj_create(item.bg);
+        lv_obj_add_style(item.batt_body, &bg_style, 0);
+        lv_obj_set_size(item.batt_body, 
+            g_current_layout == LAYOUT_VER ? lv_pct(100) : 294, 
+            g_current_layout == LAYOUT_VER ? 214 : lv_pct(100));    //lv_pct(100)=76 : lv_pct(100)=100
+        lv_obj_align(item.batt_body, g_current_layout == LAYOUT_VER ? LV_ALIGN_BOTTOM_MID : LV_ALIGN_LEFT_MID, 0, 0);
+        lv_obj_set_style_radius(item.batt_body, 15, 0);
+        lv_obj_set_style_bg_color(item.batt_body, COLOR_0D0D0D, LV_PART_MAIN);
+        lv_obj_set_style_bg_opa(item.batt_body, LV_OPA_COVER, LV_PART_MAIN);
+        lv_obj_set_style_border_width(item.batt_body, 2, LV_PART_MAIN);
+        lv_obj_set_style_border_color(item.batt_body, COLOR_404040, LV_PART_MAIN);
+        lv_obj_set_style_border_opa(item.batt_body, LV_OPA_COVER, LV_PART_MAIN);
+        lv_obj_set_style_pad_all(item.batt_body, 2, 0);
+        lv_obj_set_style_transform_pivot_x(item.batt_body, lv_pct(50), 0);   // 注意：状态传 0，即默认
+        lv_obj_set_style_transform_pivot_y(item.batt_body, lv_pct(50), 0);
+        // scale 只在 PRESSED 状态下放大，256 = 100%
+        lv_obj_set_style_transform_scale_x(item.batt_body, g_current_layout == LAYOUT_VER ? 263 : 258, LV_STATE_PRESSED);    // 78 / (lv_pct(100)-pad_top-pad_bottom=76) *256
+        lv_obj_set_style_transform_scale_y(item.batt_body, g_current_layout == LAYOUT_VER ? 258 : 261, LV_STATE_PRESSED);    // 216 / 214 *256
         
-        }else{
-            lv_obj_set_size(bar_conts[g_current_layout][idx].cont, lv_pct(100), 109);
-            lv_obj_set_pos(bar_conts[g_current_layout][idx].cont, 0, idx*110);  // 设置Y位置
 
-            // 创建分割线
-            if(idx < 1){
-                lv_obj_t* center_line = lv_obj_create(bar_layout);
-                lv_obj_set_size(center_line, 310, 1);
-                lv_obj_add_style(center_line, &bg_style, 0);
-                lv_obj_set_style_bg_color(center_line, COLOR_666666, 0);
-                lv_obj_align(center_line, LV_ALIGN_TOP_MID, 0, 109);
-            }
+        //电池索引图像
+        item.batt_idx_img = lv_image_create(item.batt_body);
+        lv_obj_set_size(item.batt_idx_img, g_current_layout == LAYOUT_VER ? lv_pct(100) : 56, 
+                                            g_current_layout == LAYOUT_VER ? 16 : lv_pct(100));
+        lv_image_set_src(item.batt_idx_img, batt_idx_imgs[g_current_layout == LAYOUT_VER ? batt_idx : batt_idx+4]);
+        lv_obj_set_style_image_recolor_opa(item.batt_idx_img, LV_OPA_COVER, 0);
+        lv_obj_set_style_image_recolor(item.batt_idx_img, COLOR_4D4D4D, 0);
+        lv_obj_align(item.batt_idx_img, g_current_layout == LAYOUT_VER ? LV_ALIGN_TOP_MID : LV_ALIGN_RIGHT_MID,
+            g_current_layout == LAYOUT_VER ? 0 : -17, 
+            g_current_layout == LAYOUT_VER ? 8 : 0);
 
-            lv_bar_set_orientation(bar_conts[g_current_layout][idx].bar, LV_BAR_ORIENTATION_HORIZONTAL);
-            lv_obj_set_size(bar_conts[g_current_layout][idx].bar, 227, 34);
-            lv_obj_align(bar_conts[g_current_layout][idx].bar, LV_ALIGN_TOP_RIGHT, -6, 38);
+        //电池状态图像容器
+        lv_obj_t *icon_bg = lv_obj_create(item.batt_body);
+        lv_obj_set_size(icon_bg, 60, 60); 
+        lv_obj_add_style(icon_bg, &bg_style, 0);
+        lv_obj_align(icon_bg, 
+            g_current_layout == LAYOUT_VER ? LV_ALIGN_TOP_MID : LV_ALIGN_LEFT_MID, 
+            g_current_layout == LAYOUT_VER ? 0 : 139, 
+            g_current_layout == LAYOUT_VER ? 39 : 0);
+        lv_obj_set_style_bg_color(icon_bg, COLOR_CLEAR, LV_PART_MAIN);
+        lv_obj_set_style_bg_opa(icon_bg, LV_OPA_TRANSP, 0);
+        lv_obj_remove_flag(icon_bg, LV_OBJ_FLAG_CLICKABLE); //icon_bg 以及它的任何子对象都不会响应点击事件,直接响应父级事件
 
-            lv_obj_align(img_cont, LV_ALIGN_LEFT_MID, 4, 0);
 
-            // 将 label_cont 右侧对齐到进度条左侧外部,相距16个单位，垂直居中
-            lv_obj_align_to(label_cont, bar_conts[g_current_layout][idx].bar, LV_ALIGN_OUT_LEFT_MID, -8, 0);
-
-            lv_obj_align(bar_conts[g_current_layout][idx].info_arrow, LV_ALIGN_RIGHT_MID, -20, 0);
-
+        for (int i = 0; i < RIPPLE_NUM; i++) {
+            item.ripples[i] = ripple_create(icon_bg, lv_color_hex(0x00A8FF));
+            lv_obj_move_to_index(item.ripples[i], 0);      /* 放到最底层 */
         }
+
+
+        item.workstatus_img = lv_image_create(icon_bg);
+        lv_obj_set_size(item.workstatus_img, 30, 30);
+        lv_image_set_src(item.workstatus_img, &img_small_none);
+        lv_obj_set_style_image_recolor_opa(item.workstatus_img, LV_OPA_COVER, 0);
+        lv_obj_center(item.workstatus_img);
+
+        lv_obj_t* text_bg = lv_obj_create(item.batt_body);
+        lv_obj_set_size(text_bg, 54, 
+            g_current_layout == LAYOUT_VER ? 50 : 60); 
+        lv_obj_add_style(text_bg, &bg_style, 0);
+        lv_obj_set_style_bg_color(text_bg, COLOR_CLEAR, 0);
+        lv_obj_set_style_bg_opa(text_bg, LV_OPA_TRANSP, 0);
+        lv_obj_align(text_bg, 
+            g_current_layout == LAYOUT_VER ? LV_ALIGN_TOP_MID : LV_ALIGN_LEFT_MID, 
+            g_current_layout == LAYOUT_VER ? 0 : 65, 
+            g_current_layout == LAYOUT_VER ? 112 : 0);
+        lv_obj_set_style_pad_row(text_bg, 0, 0);
+        lv_obj_set_grid_dsc_array(text_bg, one_grid_dsc, three_grid_dsc);
+        lv_obj_remove_flag(text_bg, LV_OBJ_FLAG_CLICKABLE); //text_bg 以及它的任何子对象都不会响应点击事件,直接响应父级事件
+
+        // 创建 grid 布局: 1*3
+        item.type_label = lv_label_create(text_bg);  
+        item.volcur_label = lv_label_create(text_bg);
+        item.time_label = lv_label_create(text_bg);
+        
+        lv_obj_set_style_text_color(item.type_label, COLOR_4D4D4D, 0);
+        lv_label_set_text(item.type_label, "1.5VLi");
+        lv_obj_set_style_text_font(item.type_label, &font_FUSION_PIXEL_PROPORTIONAL_12_2, 0);
+
+        lv_obj_set_style_text_color(item.volcur_label, COLOR_4D4D4D, 0);
+        lv_label_set_text(item.volcur_label, "12V/10A");
+        lv_obj_set_style_text_font(item.volcur_label, &font_FUSION_PIXEL_PROPORTIONAL_12_2, 0);
+
+        lv_obj_set_style_text_color(item.time_label, COLOR_4D4D4D, 0);
+        lv_label_set_text(item.time_label, "01:23:45");
+        lv_obj_set_style_text_font(item.time_label, &font_FUSION_PIXEL_PROPORTIONAL_12_2, 0);
+
+
+        // 设置它们在 Grid 中的位置（行索引 0,1,2）
+        lv_obj_set_grid_cell(item.type_label, LV_GRID_ALIGN_CENTER, 0, 1, LV_GRID_ALIGN_CENTER, 0, 1);
+        lv_obj_set_grid_cell(item.volcur_label, LV_GRID_ALIGN_CENTER, 0, 1, LV_GRID_ALIGN_CENTER, 1, 1);
+        lv_obj_set_grid_cell(item.time_label, LV_GRID_ALIGN_CENTER, 0, 1, LV_GRID_ALIGN_CENTER, 2, 1);
+        
+
+        lv_obj_t* setting_bg = lv_obj_create(item.batt_body);
+        lv_obj_set_size(setting_bg, 
+            g_current_layout == LAYOUT_VER ? 64 : 39, 
+            g_current_layout == LAYOUT_VER ? 31 : 84); 
+        lv_obj_add_style(setting_bg, &bg_style, 0);
+        lv_obj_set_style_bg_color(setting_bg, COLOR_0D0D0D, LV_PART_MAIN);
+        lv_obj_set_style_radius(setting_bg, g_current_layout == LAYOUT_VER ? 11 : 12, 0);
+        lv_obj_align(setting_bg, 
+            g_current_layout == LAYOUT_VER ? LV_ALIGN_BOTTOM_MID : LV_ALIGN_LEFT_MID, 
+            g_current_layout == LAYOUT_VER ? 0 : 2,
+            g_current_layout == LAYOUT_VER ? -2 : 0);
+        lv_obj_add_flag(setting_bg, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_set_style_bg_color(setting_bg, COLOR_404040, LV_STATE_PRESSED);
+
+        item.setting_img = lv_image_create(setting_bg);
+        lv_image_set_src(item.setting_img, &img_bar_setting);
+        lv_obj_set_style_image_recolor_opa(item.setting_img, LV_OPA_COVER, 0);
+        lv_obj_set_style_image_recolor(item.setting_img, COLOR_CCCCCC, 0);
+        lv_obj_set_style_image_recolor(item.setting_img, COLOR_FFFFFF, LV_STATE_PRESSED);
+        lv_obj_center(item.setting_img);
+
+
+        lv_obj_set_user_data(item.bar_cont, (void*)(intptr_t)batt_idx);
+        lv_obj_add_event_cb(item.bar_cont, bar_cont_click_event_cb, LV_EVENT_CLICKED, NULL);
+        lv_obj_set_user_data(item.batt_body, (void*)(intptr_t)batt_idx);
+        lv_obj_add_event_cb(item.batt_body, bar_cont_click_event_cb, LV_EVENT_CLICKED, NULL);
+        lv_obj_set_user_data(setting_bg, (void*)(intptr_t)(g_current_layout == LAYOUT_VER ? batt_idx : batt_idx+4));
+        lv_obj_add_event_cb(setting_bg, task_setting_click_event_cb, LV_EVENT_CLICKED, NULL);
+
+
+        //保存到数据结构体
+        bar_conts[g_current_layout][batt_idx] = item;
     }
 
+
+    //更新电池、进度条、文本
+    int bar_cnt = g_current_layout == LAYOUT_VER ? 4 : 6;
+    int bar_init = g_current_layout == LAYOUT_VER ? 0 : 4;
+
+    for (int bar_idx = bar_init; bar_idx < bar_cnt; bar_idx ++)
+    {
+        update_bar_batt_workstatus(bar_idx);
+        update_bar_batt_img(bar_idx);
+        update_stanby_bar_value(current_selected_batt_comp_idx, bar_idx);
+        update_bar_batt_type_text(bar_idx, false);
+        update_bar_batt_volcur_text(bar_idx, false);
+        update_bar_batt_time_text(bar_idx, false); 
+
+        bar_ripple_restart(g_current_layout, g_current_layout == LAYOUT_VER ? bar_idx : bar_idx-4);
+    
+    }
 }
 
 /**********************
  *   待机页面
  **********************/
 
+void batt_components_init(batt_components_t *comp) {
+    comp->bg = NULL;
+    comp->light = NULL;
+    comp->batt_cont = NULL;
+    comp->batt_cont_layout = LAYOUT_VER;
+    lv_memset(comp->batts, 0, sizeof(comp->batts));
+}
+
+/**
+ * @brief 更新第 batt_comp_idx 个 电池仓内部的第 bar_idx 个电池状态
+ * @param batt_comp_idx 电池仓索引
+ * @param bar_idx 进度条索引, 0-3: 纵向电池，4-5：横向电池
+ * @param newvalue 工作状态
+ */
+static void update_stanby_batt_workstatus(int batt_comp_idx, int bar_idx)
+{
+    int batt_idx = GET_BATT_INDEX(batt_comp_idx, bar_idx);
+    if (batt_idx >= MAX_BATT_TOTAL_COUNT || stanby_page_layout == NULL) return;
+    batt_data_t* data = &g_batt_data[batt_idx];
+    batt_t b = batt_coms[batt_comp_idx].batts[bar_idx]; 
+    int newvalue = data->TaskState == tsStandby ? -1 : data->work_status;
+    layout_type_t g_current_layout = batt_coms[batt_comp_idx].batt_cont_layout;
+
+    if ((bar_idx < MAX_VER_BATT_CNT && g_current_layout != LAYOUT_VER) || (bar_idx >= MAX_VER_BATT_CNT && g_current_layout != LAYOUT_HOR)) return;
+
+    // printf("->>> stanby page batt(%d) workstatus = %d, BatteryLoad = %d, TaskState = %d\n", batt_idx, newvalue, data->BatteryLoad, data->TaskState);
+
+    if (b.bar_cont)
+    {
+        lv_obj_set_style_bg_color(b.bar_cont, data->BatteryLoad == 0 ? COLOR_262626 : get_workstatus_bg_color(newvalue), LV_PART_MAIN);
+        lv_obj_set_style_border_color(b.bar_cont, data->BatteryLoad == 0 ? COLOR_4D4D4D : get_workstatus_border_color(newvalue), LV_PART_MAIN);
+    }
+    if (b.bar)
+    {
+        lv_obj_set_style_bg_color(b.bar, data->BatteryLoad == 0 ? COLOR_262626 : get_batt_workstatus_color(newvalue), LV_PART_INDICATOR);
+        lv_obj_set_style_bg_color(b.bar, data->BatteryLoad == 0 ? COLOR_262626 : get_bar_bg_color(newvalue), LV_PART_MAIN);
+    }
+
+    if (b.batt_body)
+    {
+        lv_obj_set_style_bg_color(b.batt_body, data->BatteryLoad == 0 ? COLOR_262626 : get_workstatus_bg_color(newvalue), LV_PART_MAIN);
+        lv_obj_set_style_border_color(b.batt_body, data->BatteryLoad == 0 ? COLOR_4D4D4D : get_workstatus_border_color(newvalue), LV_PART_MAIN);
+    }
+
+    if (b.workstatus_img) 
+    {
+        lv_image_set_src(b.workstatus_img, data->BatteryLoad == 0 ? &img_small_none : get_stanbybatt_workstatus_img(newvalue));
+        // if (data->value_percent >= 100)
+        //     lv_image_set_src(b.workstatus_img, &img_small_done);
+        // else    
+        //     lv_image_set_src(b.workstatus_img, data->BatteryLoad == 0 ? &img_small_none : get_stanbybatt_workstatus_img(newvalue));
+
+        lv_obj_set_style_image_recolor(b.workstatus_img, data->BatteryLoad == 0 ? COLOR_000000 : get_batt_workstatus_color(newvalue), 0);
+    }
+
+    if (b.batt_idx_img) {
+        lv_obj_set_style_image_recolor(b.batt_idx_img, data->BatteryLoad == 0 ? COLOR_4D4D4D : get_workstatus_border_color(newvalue), 0);
+    }
+
+}
+
+/**
+ * @brief 更新电池仓内部的电池容器整体布局, 纵向或者横向
+ * @param batt_com_idx 电池仓索引 
+ * @param layout 电池容器布局
+ */
+static void update_batt_com_layout(int batt_com_idx)
+{
+    layout_type_t layout = batt_coms[batt_com_idx].batt_cont_layout;
+
+    // printf("-》》》 current batt com[%d] layout = %d(0-ver)\n", batt_com_idx , layout);
+
+    lv_obj_set_style_pad_column(batt_coms[batt_com_idx].batt_cont, layout == LAYOUT_VER ? 4 : 0, 0);
+    lv_obj_set_style_pad_row(batt_coms[batt_com_idx].batt_cont, layout == LAYOUT_VER ? 0 : 4, 0);
+    lv_obj_set_grid_dsc_array(batt_coms[batt_com_idx].batt_cont, 
+        layout == LAYOUT_VER ? four_grid_dsc : one_grid_dsc, 
+        layout == LAYOUT_VER ? one_grid_dsc : two_grid_dsc);
+
+    //清空子对象
+    lv_obj_clean(batt_coms[batt_com_idx].batt_cont);
+    int idx_max = layout == LAYOUT_VER ? 4 : 2;
+
+    for (int batt_idx = 0; batt_idx < idx_max; batt_idx++)
+    {
+        batt_t item;
+
+        item.bg = lv_obj_create(batt_coms[batt_com_idx].batt_cont);
+        lv_obj_add_style(item.bg, &bg_style, 0);
+        lv_obj_set_style_bg_color(item.bg, COLOR_CLEAR, 0);
+        lv_obj_set_style_bg_opa(item.bg, LV_OPA_TRANSP, 0);
+        // 设置 grid 单元格位置，例如 i=0 -> 第0行第0列，i=1 -> 第0行第1列，i=2 -> 第0行第0列，i=3 -> 第0行第1列
+        lv_obj_set_grid_cell(item.bg, 
+            LV_GRID_ALIGN_STRETCH,  layout == LAYOUT_VER ? batt_idx : 0, 1, 
+            LV_GRID_ALIGN_STRETCH,  layout == LAYOUT_VER ? 0 : batt_idx, 1);
+        lv_obj_remove_flag(item.bg, LV_OBJ_FLAG_CLICKABLE);
+
+        //进度条容器
+        item.bar_cont = lv_bar_create(item.bg);
+        lv_obj_add_style(item.bar_cont, &bg_style, 0);
+        lv_obj_set_size(item.bar_cont, 
+            layout == LAYOUT_VER ? lv_pct(100) : 13, 
+            layout == LAYOUT_VER ? 13 : lv_pct(100));
+        lv_obj_align(item.bar_cont, layout == LAYOUT_VER ? LV_ALIGN_TOP_MID : LV_ALIGN_RIGHT_MID, 0, 0);
+        lv_obj_set_style_radius(item.bar_cont, 6, 0);
+        lv_obj_set_style_pad_all(item.bar_cont, 2, 0);
+        lv_obj_set_style_bg_color(item.bar_cont, COLOR_262626, LV_PART_MAIN);
+        lv_obj_set_style_bg_opa(item.bar_cont, LV_OPA_COVER, LV_PART_MAIN);
+        lv_obj_set_style_border_width(item.bar_cont, 2, LV_PART_MAIN);
+        lv_obj_set_style_border_color(item.bar_cont, COLOR_4D4D4D, LV_PART_MAIN);
+        lv_obj_set_style_border_opa(item.bar_cont, LV_OPA_COVER, LV_PART_MAIN);
+        lv_obj_remove_flag(item.bar_cont, LV_OBJ_FLAG_CLICKABLE);
+
+        //进度条
+        item.bar = lv_bar_create(item.bar_cont);
+        lv_obj_set_size(item.bar, lv_pct(100), lv_pct(100));
+        lv_obj_align(item.bar, LV_ALIGN_CENTER, 0, 0);
+        lv_obj_set_style_bg_color(item.bar, COLOR_262626, LV_PART_MAIN);
+        lv_obj_set_style_bg_opa(item.bar, LV_OPA_COVER, LV_PART_MAIN);
+        lv_obj_set_style_bg_color(item.bar, COLOR_262626, LV_PART_INDICATOR);
+        lv_obj_set_style_bg_opa(item.bar, LV_OPA_COVER, LV_PART_INDICATOR);
+        lv_obj_remove_flag(item.bar, LV_OBJ_FLAG_CLICKABLE);
+            
+        //电池身体
+        item.batt_body = lv_obj_create(item.bg);
+        lv_obj_add_style(item.batt_body, &bg_style, 0);
+        lv_obj_set_size(item.batt_body, layout == LAYOUT_VER ? lv_pct(100) : 110, layout == LAYOUT_VER ? 67 : lv_pct(100));
+        lv_obj_set_style_radius(item.batt_body, 5, 0);
+        lv_obj_set_style_bg_color(item.batt_body, COLOR_262626, LV_PART_MAIN);
+        lv_obj_set_style_bg_opa(item.batt_body, LV_OPA_COVER, LV_PART_MAIN);
+        lv_obj_set_style_border_width(item.batt_body, 2, LV_PART_MAIN);
+        lv_obj_set_style_border_color(item.batt_body, COLOR_4D4D4D, LV_PART_MAIN);
+        lv_obj_set_style_border_opa(item.batt_body, LV_OPA_COVER, LV_PART_MAIN);
+        lv_obj_align(item.batt_body, layout == LAYOUT_VER ? LV_ALIGN_BOTTOM_MID : LV_ALIGN_LEFT_MID, 0, 0);
+        lv_obj_remove_flag(item.batt_body, LV_OBJ_FLAG_CLICKABLE);
+
+        //电池状态图像容器
+        lv_obj_t *icon_bg = lv_obj_create(item.batt_body);
+        lv_obj_set_size(icon_bg, 26, 30); 
+        lv_obj_add_style(icon_bg, &bg_style, 0);
+        lv_obj_align(icon_bg, layout == LAYOUT_VER ? LV_ALIGN_TOP_MID : LV_ALIGN_RIGHT_MID, layout == LAYOUT_VER ? 0 : -20, layout == LAYOUT_VER ? 10 : 0);
+        lv_obj_set_style_bg_color(icon_bg, COLOR_CLEAR, LV_PART_MAIN);
+        lv_obj_set_style_bg_opa(icon_bg, LV_OPA_TRANSP, 0);
+        lv_obj_remove_flag(icon_bg, LV_OBJ_FLAG_CLICKABLE);
+
+        item.workstatus_img = lv_image_create(icon_bg);
+        lv_obj_set_size(item.workstatus_img, 26, 30);
+        lv_image_set_src(item.workstatus_img, &img_small_none);
+        lv_obj_set_style_image_recolor_opa(item.workstatus_img, LV_OPA_COVER, 0);
+        lv_obj_center(item.workstatus_img);
+
+
+        //电池索引图像
+        item.batt_idx_img = lv_image_create(item.batt_body);
+        lv_image_set_src(item.batt_idx_img, batt_idx_imgs[layout == LAYOUT_VER ? batt_idx : batt_idx+4]);
+        lv_obj_set_style_image_recolor_opa(item.batt_idx_img, LV_OPA_COVER, 0);
+        lv_obj_set_style_image_recolor(item.batt_idx_img, COLOR_4D4D4D, 0);
+        lv_obj_align(item.batt_idx_img, layout == LAYOUT_VER ? LV_ALIGN_BOTTOM_MID : LV_ALIGN_CENTER, 
+            layout == LAYOUT_VER ? 0 : -26, 
+            layout == LAYOUT_VER ? -4 : 0);
+
+        //保存到数据结构体
+        batt_coms[batt_com_idx].batts[layout == LAYOUT_VER ? batt_idx : batt_idx+4] = item;
+    }
+}
+
+/**
+ * @brief 更新底部 wifi、phone 信号图标
+ * @param icon_i 0-wifi、phone，1-wifi、phone
+ * @param is_checked 使能状态
+ */
+static void update_bottom_sign_status(int icon_i, bool is_checked)
+{
+    lv_obj_t* icon = lv_obj_get_child(bottom_objs[0], icon_i);
+    if (is_checked)
+    {
+        lv_obj_add_state(icon, LV_STATE_CHECKED);
+    }else{
+        lv_obj_remove_state(icon, LV_STATE_CHECKED);
+    }
+
+}
+
 
 static void bottom_btn_event(lv_event_t* e) {
     lv_obj_t* current_obj = lv_event_get_target(e);
     int bottom_btn_idx = (int)(intptr_t)lv_obj_get_user_data(current_obj);
     lv_event_code_t code = lv_event_get_code(e);
-    printf("bottom_btn_idx=%d\n", bottom_btn_idx);
+    // printf("-》》》 bottom_btn_idx=%d\n", bottom_btn_idx);
+
+    if (bottom_btn_idx == 3)
+    {
+        lv_delete_layout(&stanby_page_layout);
+
+        current_selected_menu_idx = 0;
+        menu_page_create();
+
+    }else{
+        lv_obj_t* img = lv_obj_get_child(current_obj, 0);
+        lv_obj_t* label = lv_obj_get_child(current_obj, 1);
+
+        if (lv_obj_has_state(img, LV_STATE_CHECKED) || (lv_obj_has_state(label, LV_STATE_CHECKED)))
+        {
+            lv_obj_remove_state(img, LV_STATE_CHECKED);
+            lv_obj_remove_state(label, LV_STATE_CHECKED);
+
+            lv_image_set_src(img, stanby_display_btns[bottom_btn_idx].main_img);
+            lv_label_set_text(label, GetLanguageString(stanby_display_btns[bottom_btn_idx].main_text));
+        }else{
+            lv_obj_add_state(img, LV_STATE_CHECKED);
+            lv_obj_add_state(label, LV_STATE_CHECKED);
+
+            lv_image_set_src(img, stanby_display_btns[bottom_btn_idx].selected_img);
+            lv_label_set_text(label, GetLanguageString(stanby_display_btns[bottom_btn_idx].selected_text));
+        }
+    }
 
 }
 
 static void show_bar_event(lv_event_t* e) {
     lv_obj_t* current_obj = lv_event_get_target(e);
     int batt_com_idx = (int)(intptr_t)lv_obj_get_user_data(current_obj);
-    lv_event_code_t code = lv_event_get_code(e);
-    printf("batt_com_idx=%d\n", batt_com_idx);
 
     current_selected_batt_comp_idx = batt_com_idx;
-    bar_page_create();
+
+    lv_delete_layout(&stanby_page_layout);
+    if (!bar_layout)
+    {
+        current_selected_bar_idx = -1;
+        bar_page_create();
+    }
 
 }
 
-/**
-* @brief 创建待机页面
-*/
-void stanby_page_create(){
-    const lv_color_t colors[] = {COLOR_FFFFFF, COLOR_CCCCCC, COLOR_4D4D4D, COLOR_F9F9F9};
+void stanby_page_create(void){
+
+    if (stanby_page_layout != NULL && lv_obj_is_valid(stanby_page_layout)) {
+        printf("stanby_page_layout != NULL && lv_obj_is_valid\n");
+        return;
+    }
 
     if (stanby_page_layout) {
         printf("stanby_page_layout != NULL\n");
@@ -2333,11 +4133,8 @@ void stanby_page_create(){
     }
 
 
-    // 定义网格列描述数组（所有行共用）：LV_GRID_TEMPLATE_LAST 是必须的结尾标记
-    static const lv_coord_t col_dsc[] = {LV_GRID_FR(1), LV_GRID_FR(1), LV_GRID_TEMPLATE_LAST}; // 2列等宽
-    static const lv_coord_t row_dsc[] = {100, 100, LV_GRID_TEMPLATE_LAST}; // 2行等高
-    static const lv_coord_t bottom_col_dsc[] = {LV_GRID_FR(1), LV_GRID_FR(1), LV_GRID_FR(1), LV_GRID_FR(1), LV_GRID_TEMPLATE_LAST}; // 4列等宽
-    static const lv_coord_t bottom_row_dsc[] = {38, LV_GRID_TEMPLATE_LAST}; // 1行等高
+    // btn_indev_group_remove_all_obj();
+
 
     stanby_page_layout = lv_obj_create(lv_scr_act());
     lv_obj_set_size(stanby_page_layout, lv_pct(100), lv_pct(100)); 
@@ -2345,72 +4142,143 @@ void stanby_page_create(){
     lv_obj_add_style(stanby_page_layout, &bg_style, 0);
     lv_obj_set_style_bg_color(stanby_page_layout, COLOR_CLEAR, 0);
     lv_obj_set_style_bg_opa(stanby_page_layout, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_pad_all(stanby_page_layout, 2, 0);
 
     //创建 grid 布局： 2*2
     lv_obj_t* batt_com_bg = lv_obj_create(stanby_page_layout);
-    lv_obj_set_size(batt_com_bg, lv_pct(100), 201); 
-    lv_obj_align(batt_com_bg, LV_ALIGN_TOP_LEFT, 0, 0);
+    lv_obj_set_size(batt_com_bg, lv_pct(100), current_batt_com_cnt == 2 ? 102 : 206); 
+    lv_obj_align(batt_com_bg, LV_ALIGN_TOP_LEFT, 0, current_batt_com_cnt == 2 ? 69 : 0);
     lv_obj_add_style(batt_com_bg, &bg_style, 0);
     lv_obj_set_style_bg_color(batt_com_bg, COLOR_CLEAR, 0);
     lv_obj_set_style_bg_opa(batt_com_bg, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_pad_column(batt_com_bg, 1, 0);
-    lv_obj_set_style_pad_row(batt_com_bg, 1, 0);
-    lv_obj_set_grid_dsc_array(batt_com_bg, col_dsc, row_dsc);  
+    lv_obj_set_style_pad_column(batt_com_bg, 2, 0);
+    lv_obj_set_style_pad_row(batt_com_bg, 2, 0);
+    lv_obj_set_grid_dsc_array(batt_com_bg, two_grid_dsc, current_batt_com_cnt == 2 ? one_grid_dsc : two_grid_dsc);  
     
-    for(int batt_com_idx=0;batt_com_idx<4;batt_com_idx++){
-        lv_obj_t* battery_compartment = lv_obj_create(batt_com_bg);
-        lv_obj_add_style(battery_compartment, &bg_style, 0);
-        lv_obj_set_style_bg_color(battery_compartment, colors[batt_com_idx], 0);
-        // lv_obj_set_style_bg_color(battery_compartment, COLOR_CLEAR, 0);
-        // lv_obj_set_style_bg_opa(battery_compartment, LV_OPA_TRANSP, 0);
 
+    for(int batt_com_idx=0; batt_com_idx < current_batt_com_cnt; batt_com_idx++){
+        batt_coms[batt_com_idx].bg = lv_obj_create(batt_com_bg);
+        lv_obj_add_style(batt_coms[batt_com_idx].bg, &bg_style, 0);
+        lv_obj_set_style_bg_color(batt_coms[batt_com_idx].bg, COLOR_1A1A1A, 0);
+        lv_obj_set_style_radius(batt_coms[batt_com_idx].bg, 5, 0);
         // 不需要再设置单独的大小，由 grid 拉伸填充
         // 设置 grid 单元格位置，例如 i=0 -> 第0行第0列，i=1 -> 第0行第1列，i=2 -> 第1行第0列，i=3 -> 第1行第1列
-        lv_obj_set_grid_cell(battery_compartment, LV_GRID_ALIGN_STRETCH, batt_com_idx % 2, 1, LV_GRID_ALIGN_STRETCH, batt_com_idx / 2, 1);
-    
-        lv_obj_set_user_data(battery_compartment, (void*)(intptr_t)batt_com_idx);//使用 intptr_t 保证可移植性
-        lv_obj_add_event_cb(battery_compartment, show_bar_event, LV_EVENT_CLICKED, NULL);
-    }
-    
+        lv_obj_set_grid_cell(batt_coms[batt_com_idx].bg, LV_GRID_ALIGN_STRETCH, batt_com_idx % 2, 1, LV_GRID_ALIGN_STRETCH, batt_com_idx / 2, 1);
 
-    lv_obj_t* bottom_line = lv_obj_create(stanby_page_layout);
-    lv_obj_set_size(bottom_line, lv_pct(100), 1);
-    lv_obj_add_style(bottom_line, &bg_style, 0);
-    lv_obj_set_style_bg_color(bottom_line, COLOR_666666, 0);
-    lv_obj_align(bottom_line, LV_ALIGN_BOTTOM_MID, 0, -38);
+        lv_obj_set_user_data(batt_coms[batt_com_idx].bg, (void*)(intptr_t)batt_com_idx);//使用 intptr_t 保证可移植性
+        lv_obj_add_event_cb(batt_coms[batt_com_idx].bg, show_bar_event, LV_EVENT_CLICKED, NULL);
+
+
+        batt_coms[batt_com_idx].light = lv_obj_create(batt_coms[batt_com_idx].bg);
+        lv_obj_set_size(batt_coms[batt_com_idx].light, 4, 18);
+        lv_obj_add_style(batt_coms[batt_com_idx].light, &bg_style, 0);
+        lv_obj_set_style_bg_color(batt_coms[batt_com_idx].light, COLOR_4D4D4D, 0);
+        lv_obj_set_style_radius(batt_coms[batt_com_idx].light, 9, 0);
+        lv_obj_align(batt_coms[batt_com_idx].light, LV_ALIGN_LEFT_MID, 5, 0);
+        lv_obj_remove_flag(batt_coms[batt_com_idx].light, LV_OBJ_FLAG_CLICKABLE);
+
+
+        batt_coms[batt_com_idx].batt_cont = lv_obj_create(batt_coms[batt_com_idx].bg);
+        lv_obj_set_size(batt_coms[batt_com_idx].batt_cont, 140, 92);
+        lv_obj_add_style(batt_coms[batt_com_idx].batt_cont, &bg_style, 0);
+        lv_obj_set_style_bg_color(batt_coms[batt_com_idx].batt_cont, COLOR_000000, 0);
+        lv_obj_set_style_radius(batt_coms[batt_com_idx].batt_cont, 5, 0);
+        lv_obj_align(batt_coms[batt_com_idx].batt_cont, LV_ALIGN_LEFT_MID, 14, 0);
+        lv_obj_set_style_pad_all(batt_coms[batt_com_idx].batt_cont, 4, 0);
+        lv_obj_remove_flag(batt_coms[batt_com_idx].batt_cont, LV_OBJ_FLAG_CLICKABLE);
+
+
+        //更新电池仓内部的电池布局
+        update_batt_com_layout(batt_com_idx);
+
+    }
+
+    bottom_objs[0] = lv_obj_create(stanby_page_layout);
+    lv_obj_set_size(bottom_objs[0], 40, 28);
+    lv_obj_align(bottom_objs[0], LV_ALIGN_BOTTOM_LEFT, 0, 0);
+    lv_obj_add_style(bottom_objs[0], &bg_style, 0);
+    lv_obj_set_style_bg_color(bottom_objs[0], COLOR_1A1A1A, 0);
+    lv_obj_set_style_radius(bottom_objs[0], 5, 0);
+
+    lv_obj_t *wifi_icon = lv_image_create(bottom_objs[0]);  
+    lv_image_set_src(wifi_icon, &img_wifi);
+    lv_obj_add_style(wifi_icon, &style_img_selected, LV_STATE_CHECKED);
+    lv_obj_set_style_image_recolor_opa(wifi_icon, LV_OPA_COVER, 0);
+    lv_obj_set_style_image_recolor(wifi_icon, COLOR_4D4D4D, 0);
+    lv_obj_align(wifi_icon, LV_ALIGN_CENTER, -10, 0);
+
+    lv_obj_t *mobile_connection_icon = lv_image_create(bottom_objs[0]);  
+    lv_image_set_src(mobile_connection_icon, &img_mobile_con);
+    lv_obj_add_style(mobile_connection_icon, &style_img_selected, LV_STATE_CHECKED);
+    lv_obj_set_style_image_recolor_opa(mobile_connection_icon, LV_OPA_COVER, 0);
+    lv_obj_set_style_image_recolor(mobile_connection_icon, COLOR_4D4D4D, 0);
+    lv_obj_align(mobile_connection_icon, LV_ALIGN_CENTER, 10, 0);
 
     //创建 grid 布局： 4*1
     lv_obj_t* bottom_btn_layout = lv_obj_create(stanby_page_layout);
-    lv_obj_set_size(bottom_btn_layout, lv_pct(100), 38);
+    lv_obj_set_size(bottom_btn_layout, 273, 28);
     lv_obj_add_style(bottom_btn_layout, &bg_style, 0);
-    lv_obj_align(bottom_btn_layout, LV_ALIGN_BOTTOM_MID, 0, 0);
+    lv_obj_align(bottom_btn_layout, LV_ALIGN_BOTTOM_RIGHT, 0, 0);
     lv_obj_set_style_bg_color(bottom_btn_layout, COLOR_CLEAR, 0);
     lv_obj_set_style_bg_opa(bottom_btn_layout, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_pad_column(bottom_btn_layout, 1, 0);
-    lv_obj_set_grid_dsc_array(bottom_btn_layout, bottom_col_dsc, bottom_row_dsc); 
+    lv_obj_set_style_pad_column(bottom_btn_layout, 3, 0);
+    lv_obj_set_grid_dsc_array(bottom_btn_layout, four_grid_dsc, one_grid_dsc); 
     
 
-    for(int bottom_btn_idx=0;bottom_btn_idx<MAX_BOTTOM_BTN_COUNT;bottom_btn_idx++){
+    for(int bottom_btn_idx=0;bottom_btn_idx<4;bottom_btn_idx++){
         lv_obj_t* column_cont = lv_obj_create(bottom_btn_layout);
         lv_obj_add_style(column_cont, &bg_style, 0);
-        lv_obj_set_style_bg_color(column_cont, colors[bottom_btn_idx], 0);
-        // lv_obj_set_style_bg_color(column_cont, COLOR_CLEAR, 0);
-        // lv_obj_set_style_bg_opa(column_cont, LV_OPA_TRANSP, 0);
+        lv_obj_set_style_bg_color(column_cont, COLOR_1A1A1A, 0); 
+        lv_obj_set_style_radius(column_cont, 5, 0);
+        if (bottom_btn_idx == 3)
+        {
+            lv_obj_add_style(column_cont, &style_child_btn_selected, LV_STATE_PRESSED);
+        }
 
          // 设置 grid 单元格位置，例如 i=0 -> 第0行第0列，i=1 -> 第0行第1列，i=2 -> 第0行第0列，i=3 -> 第0行第1列
         lv_obj_set_grid_cell(column_cont, LV_GRID_ALIGN_STRETCH, bottom_btn_idx, 1, LV_GRID_ALIGN_STRETCH, 0, 1);
 
+        lv_obj_t *icon = lv_image_create(column_cont);  
+        lv_obj_add_style(icon, &style_img_selected, LV_STATE_CHECKED);
+        lv_image_set_src(icon, stanby_display_btns[bottom_btn_idx].main_img);
+        lv_obj_set_style_image_recolor_opa(icon, LV_OPA_COVER, 0);
+        lv_obj_set_style_image_recolor(icon, bottom_btn_idx == 3 ? COLOR_FFFFFF : COLOR_4D4D4D, 0);
+        lv_obj_align(icon, LV_ALIGN_LEFT_MID, 5, 0);
+
+        lv_obj_t *name = lv_label_create(column_cont);
+        lv_obj_add_style(name, &style_text_selected, LV_STATE_CHECKED);
+        lv_obj_set_style_text_color(name, bottom_btn_idx == 3 ? COLOR_FFFFFF : COLOR_4D4D4D, 0);
+        lv_label_set_text(name, GetLanguageString(stanby_display_btns[bottom_btn_idx].main_text));
+        lv_obj_set_style_text_font(name, &font_FUSION_PIXEL_PROPORTIONAL_12_2, 0);
+        lv_obj_align(name, LV_ALIGN_LEFT_MID, 28, 0);
+
         lv_obj_set_user_data(column_cont, (void*)(intptr_t)bottom_btn_idx);
         lv_obj_add_event_cb(column_cont, bottom_btn_event, LV_EVENT_CLICKED, NULL);
+
+        bottom_objs[bottom_btn_idx+1] = column_cont;
     }
 
+    
+    //更新电池仓电池状态
+    for (int i = 0; i < current_batt_com_cnt; i ++)
+    {
+        layout_type_t layout = batt_coms[i].batt_cont_layout;
+        int init = layout == LAYOUT_VER ? 0 : 4;
+        int max = layout == LAYOUT_VER ? 4 : 6;
+        
+        for (int j = init; j < max; j ++)
+        {
+            update_stanby_batt_workstatus(i, j);
+            update_stanby_bar_value(i, j);
+        }
+    }
 
+    // btn_indev_group_add_obj(stanby_page_layout);
 }
 
 /**********************
  *   init
  **********************/
-
 static void init_style(){
     lv_style_init(&bg_style);
     lv_style_set_bg_color(&bg_style, COLOR_000000);
@@ -2423,30 +4291,180 @@ static void init_style(){
     // 设置选中时的背景色
     lv_style_init(&style_row_selected);
     lv_style_set_bg_opa(&style_row_selected, LV_OPA_COVER);
-    lv_style_set_bg_color(&style_row_selected, COLOR_00FF00);
+    lv_style_set_bg_color(&style_row_selected, COLOR_808080);
 
-    // 按下时的背景色
-    lv_style_init(&style_row_pressed);
-    lv_style_set_bg_opa(&style_row_pressed, LV_OPA_COVER);
-    lv_style_set_bg_color(&style_row_pressed, COLOR_CCCCCC); 
-    // 禁用按下时的缩放效果
-    lv_style_set_transform_width(&style_row_pressed, 0);
-    lv_style_set_transform_height(&style_row_pressed, 0);
+
+    lv_style_init(&style_child_btn_selected);
+    lv_style_set_bg_opa(&style_child_btn_selected, LV_OPA_COVER);
+    lv_style_set_bg_color(&style_child_btn_selected, COLOR_0066FF);
+
+    lv_style_init(&style_text_selected);
+    lv_style_set_text_color(&style_text_selected, COLOR_FFFF00);
+
+    lv_style_init(&style_img_selected);
+    lv_style_set_image_recolor(&style_img_selected, COLOR_FFFF00);
 
     
-    // 设置选中时的背景色
-    lv_style_init(&style_selected);
-    lv_style_set_bg_opa(&style_selected, LV_OPA_COVER);
-    lv_style_set_bg_color(&style_selected, COLOR_00FF00);
-    
-    // 按下时的背景色
-    lv_style_init(&style_pressed);
-    lv_style_set_bg_opa(&style_pressed, LV_OPA_COVER);
-    lv_style_set_bg_color(&style_pressed, COLOR_00FF00); 
-    // 禁用按下时的缩放效果
-    lv_style_set_transform_width(&style_pressed, 0);
-    lv_style_set_transform_height(&style_pressed, 0);
+    lv_style_init(&style_menu_img_selected);
+    lv_style_set_image_recolor(&style_menu_img_selected, COLOR_FFFFFF);
 
+    lv_style_init(&style_menu_text_selected);
+    lv_style_set_text_color(&style_menu_text_selected, COLOR_FFFFFF);
+
+    menu_fade_init_once();
+    menu_slide_from_right_init_once();
+    menu_slide_from_left_init_once();
+    menu_slide_from_bottom_init_once();
+
+}
+
+void init_data()
+{
+    //初始菜单值
+    static const int32_t init_value[5] = {0, 1, 0, 0, 0};
+    lv_memcpy(menu_items_data, init_value, sizeof(menu_items_data));
+
+
+    //初始化电池仓布局
+    for(int batt_com_idx=0; batt_com_idx < current_batt_com_cnt; batt_com_idx++){ 
+        batt_components_init(&batt_coms[batt_com_idx]);
+        if (batt_com_idx == current_batt_com_cnt-1)
+        {
+            batt_components_t comp;
+            comp.bg = NULL;
+            comp.light = NULL;
+            comp.batt_cont = NULL;
+            comp.batt_cont_layout = LAYOUT_HOR;
+            lv_memset(comp.batts, 0, sizeof(comp.batts));
+            batt_coms[batt_com_idx] = comp;
+        }
+    }
+
+
+    batt_data_t data0 = {
+        .TaskState = 1,
+        .BatteryLoad = 1,
+        .work_status = 0,
+        .batt_type = 0xff,
+        .value_percent = 59,
+        .value_mah = 999,       
+        .value_Ohms = 56,
+        .value_tempc = 45,
+        .value_tempf = 100,
+        .value_mWh = 999,
+        .vol_mv = 4200,
+        .cur_ma = 1010,
+        .time_s = 3665, 
+    };
+    g_batt_data[0] = data0;
+
+    batt_data_t data1 = {
+        .TaskState = 0,
+        .BatteryLoad = 1,
+        .work_status = 0,
+        .batt_type = 1,
+        .value_percent = 50,
+        .value_mah = 999,       
+        .value_Ohms = 56,
+        .value_tempc = 45,
+        .value_tempf = 100,
+        .value_mWh = 999,
+        .vol_mv = 4200,
+        .cur_ma = 1010,
+        .time_s = 3665, 
+    };
+    g_batt_data[1] = data1;
+
+    batt_data_t data2 = {
+        .TaskState = 1,
+        .BatteryLoad = 1,
+        .work_status = 3,
+        .batt_type = 1,
+        .value_percent = 110,
+        .value_mah = 999,       
+        .value_Ohms = 56,
+        .value_tempc = 45,
+        .value_tempf = 100,
+        .value_mWh = 999,
+        .vol_mv = 4200,
+        .cur_ma = 1010,
+        .time_s = 3665, 
+    };
+    g_batt_data[2] = data2;
+
+    batt_data_t data10 = {
+        .TaskState = 1,
+        .BatteryLoad = 1,
+        .work_status = 3,
+        .batt_type = 1,
+        .value_percent = 110,
+        .value_mah = 999,       
+        .value_Ohms = 56,
+        .value_tempc = 45,
+        .value_tempf = 100,
+        .value_mWh = 999,
+        .vol_mv = 4200,
+        .cur_ma = 1010,
+        .time_s = 3665, 
+    };
+    g_batt_data[10] = data10;
+
+    batt_data_t data11 = {
+        .TaskState = 1,
+        .BatteryLoad = 0,
+        .work_status = 3,
+        .batt_type = 1,
+        .value_percent = 110,
+        .value_mah = 999,       
+        .value_Ohms = 56,
+        .value_tempc = 45,
+        .value_tempf = 100,
+        .value_mWh = 999,
+        .vol_mv = 4200,
+        .cur_ma = 1010,
+        .time_s = 3665, 
+    };
+    g_batt_data[11] = data11;
+
+}
+
+static lv_coord_t gesture_start_x = 0;      //滑动时 x 坐标
+static lv_coord_t gesture_start_y = 0;      //滑动时 y 坐标
+static bool gesture_has_start = false;      //判断滑动手势是否触发
+
+
+static void screen_gesture_test_cb(lv_event_t *e)
+{
+    lv_event_code_t code = lv_event_get_code(e);
+    lv_indev_t *indev = lv_indev_active();
+
+    if (!indev) return;
+
+    lv_point_t p;
+    lv_indev_get_point(indev, &p);
+
+    if (code == LV_EVENT_PRESSED) {
+        gesture_start_x = p.x;
+        gesture_start_y = p.y;
+        gesture_has_start = true;
+        printf("gesture start: %d,%d\n", (int)p.x, (int)p.y);
+    } else if (code == LV_EVENT_GESTURE) {
+        lv_dir_t dir = lv_indev_get_gesture_dir(indev);
+        printf("gesture dir = %d\n", dir);
+
+        if (gesture_has_start) {
+            lv_coord_t dx = p.x - gesture_start_x;
+            lv_coord_t dy = p.y - gesture_start_y;
+            printf("gesture dx=%d, dy=%d\n", (int)dx, (int)dy);
+
+            if (info_layout)
+            {
+                lv_obj_t* title_row = lv_obj_get_child(info_layout, 0);
+                lv_obj_send_event(lv_obj_get_child(title_row, 0), LV_EVENT_CLICKED, NULL);
+            }
+
+        }
+    }
 }
 
 void page_create_v2(void){
@@ -2457,9 +4475,14 @@ void page_create_v2(void){
     
     // printf("Screen W:%ld, H:%ld\n", lv_obj_get_width(lv_scr_act()), lv_obj_get_height(lv_scr_act()));
 
-// info_page_create(0);
-    // stanby_page_create();
-    // bar_page_create();
-    setting_page_create();
+    // SetCurrentLanguage(LANGUAGE_CN);
+    init_data();
+    stanby_page_create();
+
+    //让事件冒泡到屏幕
+    lv_obj_add_flag(stanby_page_layout, LV_OBJ_FLAG_EVENT_BUBBLE);
+
+    lv_obj_add_event_cb(lv_scr_act(), screen_gesture_test_cb, LV_EVENT_PRESSED, NULL);
+    lv_obj_add_event_cb(lv_scr_act(), screen_gesture_test_cb, LV_EVENT_GESTURE, NULL);
 
 }
