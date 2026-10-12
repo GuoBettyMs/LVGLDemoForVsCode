@@ -111,12 +111,13 @@ else()
         ${PROJECT_SOURCE_DIR}/main/src/mouse_cursor_icon.c
         ${PROJECT_SOURCE_DIR}/main/src/main.c
         ${PROJECT_SOURCE_DIR}/main/src/ui_desks/n8evo/page_main.c
+        ${PROJECT_SOURCE_DIR}/main/src/ui_desks/n8evo/User_communication.c
+        ${PROJECT_SOURCE_DIR}/main/src/ui_desks/n8evo/User_gpio.c
         ${PROJECT_SOURCE_DIR}/main/src/ui_desks/n8evo/chart_process.cpp
         ${PROJECT_SOURCE_DIR}/main/src/ui_desks/n8evo/TChartUpdator.cpp
         ${LANGUAGE_SOURCES}
         ${FONT_SOURCES}
         ${IMG_SOURCES}
-        main/src/ui_desks/n8evo/img/img_charge_current.c
     )
 endif()
 

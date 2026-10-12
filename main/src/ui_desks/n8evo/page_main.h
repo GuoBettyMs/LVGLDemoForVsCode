@@ -21,6 +21,9 @@ extern "C" {
 #include "img/image_defines.h"
 
 #include "User_communication.h"
+// #include "freertos/FreeRTOS.h"
+// #include "freertos/task.h"
+#include "User_gpio.h"
 #include "chart_process.h"                              //嵌入式图表
 
 #define MAX_BATT_COM_COUNT              4               //电池仓总数,从0开始

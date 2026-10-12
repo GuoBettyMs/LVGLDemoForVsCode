@@ -5,9 +5,16 @@
 
 #include "page_main.h"
 
-
 static void bar_page_create();
 static void on_language_changed();
+
+ static int get_task_list_idx(int row);
+int get_sub_items_count(int row_idx);
+void stanby_page_create(void);
+static void bar_page_create();
+void task_setting_click_event_cb(lv_event_t* e);
+static void menu_child_click_cb(lv_event_t *e);
+static void UI_Data_Updata(lv_timer_t * timer);
 
 /***********************  公共变量 **********************/
 static uint8_t selected_settingrow_group_index = 1; //设置行组的索引
@@ -168,10 +175,16 @@ static const lv_coord_t two_grid_dsc[] = {LV_GRID_FR(1), LV_GRID_FR(1), LV_GRID_
 static const lv_coord_t four_grid_dsc[] = {LV_GRID_FR(1), LV_GRID_FR(1), LV_GRID_FR(1), LV_GRID_FR(1), LV_GRID_TEMPLATE_LAST}; // 4行/列等宽
 
 
+static lv_coord_t gesture_start_x = 0;      //滑动时 x 坐标
+static lv_coord_t gesture_start_y = 0;      //滑动时 y 坐标
+static bool gesture_has_start = false;      //判断滑动手势是否触发
+
+
 
 /*控件*/
 lv_obj_t* stanby_page_layout;
 ui_data_t g_ui_data;
+static lv_timer_t* UI_Updata_Timer = NULL;
 static const setting_row_display_t stanby_display_btns[] = 
 {
     {&img_no_sound, &img_sound, STR_SOUND, STR_SOUND,{-1}},
@@ -232,13 +245,6 @@ static lv_obj_t* menu_sub_container[MAX_SETTING_ROW_COUNT] = {NULL};    //子 la
 /**********************
  *   common methods
  **********************/
-
- static int get_task_list_idx(int row);
-int get_sub_items_count(int row_idx);
-void stanby_page_create(void);
-static void bar_page_create();
-void task_setting_click_event_cb(lv_event_t* e);
-static void menu_child_click_cb(lv_event_t *e);
 
 
 // void btn_indev_group_remove_all_obj(void)
@@ -479,12 +485,12 @@ lv_color_t get_batt_workstatus_color(int32_t value){
 lv_color_t get_workstatus_bg_color(int32_t value){
     switch (value) {
         case ttCharge: return COLOR_331400; // 充电中
-        // case ttDischarge: return COLOR_FF5599; // 放电
-        // case ttStorage: return COLOR_5555FF; // 存储
+        case ttDischarge: return COLOR_FF5599; // 放电
+        case ttStorage: return COLOR_5555FF; // 存储
         case ttCycle: return COLOR_00141A;// 循环
-        // case ttAnalysis: return COLOR_9955FF; // 分析
-        // case ttActivate: return COLOR_37C8AB; // 激活
-        // case ttDestroy: return COLOR_FF5555; // 损坏
+        case ttAnalysis: return COLOR_9955FF; // 分析
+        case ttActivate: return COLOR_37C8AB; // 激活
+        case ttDestroy: return COLOR_FF5555; // 损坏
         default: return COLOR_262626; // 待机或未知状态
     }
 }
@@ -496,12 +502,12 @@ lv_color_t get_workstatus_bg_color(int32_t value){
 lv_color_t get_workstatus_border_color(int32_t value){
     switch (value) {
         case ttCharge: return COLOR_993D00; // 充电中
-        // case ttDischarge: return COLOR_FF5599; // 放电
-        // case ttStorage: return COLOR_5555FF; // 存储
+        case ttDischarge: return COLOR_FF5599; // 放电
+        case ttStorage: return COLOR_5555FF; // 存储
         case ttCycle: return COLOR_005266;// 循环
-        // case ttAnalysis: return COLOR_9955FF; // 分析
-        // case ttActivate: return COLOR_37C8AB; // 激活
-        // case ttDestroy: return COLOR_FF5555; // 损坏
+        case ttAnalysis: return COLOR_9955FF; // 分析
+        case ttActivate: return COLOR_37C8AB; // 激活
+        case ttDestroy: return COLOR_FF5555; // 损坏
         default: return COLOR_4D4D4D; // 待机或未知状态
     }
 }
@@ -513,17 +519,99 @@ lv_color_t get_workstatus_border_color(int32_t value){
 lv_color_t get_bar_bg_color(int32_t value){
     switch (value) {
         case ttCharge: return COLOR_4D1F00; // 充电中
-        // case ttDischarge: return COLOR_FF5599; // 放电
-        // case ttStorage: return COLOR_5555FF; // 存储
+        case ttDischarge: return COLOR_FF5599; // 放电
+        case ttStorage: return COLOR_5555FF; // 存储
         case ttCycle: return COLOR_003D4D;// 循环
-        // case ttAnalysis: return COLOR_9955FF; // 分析
-        // case ttActivate: return COLOR_37C8AB; // 激活
-        // case ttDestroy: return COLOR_FF5555; // 损坏
+        case ttAnalysis: return COLOR_9955FF; // 分析
+        case ttActivate: return COLOR_37C8AB; // 激活
+        case ttDestroy: return COLOR_FF5555; // 损坏
         default: return COLOR_262626; // 待机或未知状态
     }
 }
 
+// 字符 → 图片描述符 的映射
+typedef struct {
+    char        ch;
+    const void* img;    // lv_img_dsc_t*
+} char_img_map_t;
 
+static const char_img_map_t g_char_img_map[] = {
+    { '0', &img_num_0   },
+    { '1', &img_num_1   },
+    { '2', &img_num_2   },
+    { '3', &img_num_3   },
+    { '4', &img_num_4   },
+    { '5', &img_num_5   },
+    { '6', &img_num_6   },
+    { '7', &img_num_7   },
+    { '8', &img_num_8   },
+    { '9', &img_num_9   },
+    { '.', &img_period  },
+    { 'V', &img_uint_b  },
+    { '/', &img_slash   },
+    { 'A', &img_uint_a  },
+    { ':', &img_colon   },
+    { '-', &img_text_none   },
+};
+static const struct {
+    eBatteryType_t value;
+    const void* img;
+} batt_type_to_img[] = {
+    {0, &img_type_auto},
+    {1, &img_type_lihv},
+    {2, &img_type_liion},
+    {3, &img_type_life},
+    {4, &img_type_nizn},
+    {5, &img_type_nicd},
+    {6, &img_type_1_5vli},  
+};
+#define CHAR_IMG_MAP_NUM (sizeof(g_char_img_map)/sizeof(g_char_img_map[0]))
+
+static const void* get_char_img(char c)
+{
+    for (int i = 0; i < CHAR_IMG_MAP_NUM; i++) {
+        if (g_char_img_map[i].ch == c) return g_char_img_map[i].img;
+    }
+    return NULL;
+}
+
+static const void* get_batttype_img(eBatteryType_t type)
+{
+    for (int i = 0; i < CHAR_IMG_MAP_NUM; i++) {
+        if (batt_type_to_img[i].value == type) return batt_type_to_img[i].img;
+    }
+    return NULL;
+}
+
+/* 图像字符串容器: 把 str 拆成一个个字符，用图片拼出来，塞进 cont 里 */
+static void set_volcur_image_text(lv_obj_t* cont, const char* str)
+{
+    if (cont == NULL || str == NULL) return;
+
+    /* 1) 清掉旧的图片 */
+    lv_obj_clean(cont);   // 会把子对象全删掉，但 cont 自己保留
+
+    /* 2) 逐字符创建 image */
+    for (const char* p = str; *p; p++) {
+        const void* src = get_char_img(*p);
+        if (src == NULL) {
+            /* 没有映射的字符，跳过（也可以创建一个占位图） */
+            continue;
+        }
+
+        lv_obj_t* img = lv_image_create(cont);
+        lv_image_set_src(img, src);
+        lv_obj_set_style_image_recolor_opa(img, LV_OPA_COVER, 0);
+        lv_obj_set_style_image_recolor(img, COLOR_FFFFFF, 0);
+        lv_obj_remove_flag(img, LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_remove_flag(img, LV_OBJ_FLAG_SCROLLABLE);
+        lv_obj_set_style_pad_all(img, 0, 0);
+        if (*p == '.')
+        {
+            lv_obj_set_style_translate_y(img, 3, 0);    //小数点偏移
+        }
+    }
+}
 
 /**
  * @brief 更新进度条值
@@ -605,7 +693,12 @@ void update_bar_batt_type_text(int bar_idx, bool is_info_page) {
          batt_t b = bar_conts[g_current_layout][g_current_layout == LAYOUT_VER ? bar_idx : bar_idx-4]; 
         if (b.type_label) {
             //电池有装载有工作但识别不了类型、或者电池有装载没有工作，文本显示为“--”
-            lv_label_set_text(b.type_label, data->BatteryLoad == 1 && data->batt_type < 255 ? GetLanguageString(battery_value_default[data->batt_type]) : "--"); 
+            // lv_label_set_text(b.type_label, data->BatteryLoad == 1 && data->batt_type < 255 ? GetLanguageString(battery_value_default[data->batt_type]) : "--"); 
+            
+            /** 法二: 图像代替 label **/
+            const void* src = get_batttype_img(data->batt_type);
+            lv_image_set_src(b.type_label, data->BatteryLoad == 1 && data->batt_type < 255 ? src : &img_text_none);
+            
         }
     }
 
@@ -673,8 +766,10 @@ void update_bar_batt_volcur_text(int bar_idx, bool is_info_page) {
                 cur_ma = -cur_ma;
                 snprintf(buf, sizeof(buf), "%ld.%01ldV/-%ld.%01ldA", vol_mv/10, vol_mv%10, cur_ma/10, cur_ma%10);
             }
-            
-            lv_label_set_text(b.volcur_label, data->BatteryLoad == 0 || data->TaskState == tsStandby ? "--" : buf);
+            // /*法一 */
+            // lv_label_set_text(b.volcur_label, data->BatteryLoad == 0 || data->TaskState == tsStandby ? "--" : buf);
+            /*法二 图像字符串容器*/
+            set_volcur_image_text(b.volcur_label, data->BatteryLoad == 0 || data->TaskState == tsStandby ? "-" : buf);
         }
     }
 
@@ -707,7 +802,9 @@ void update_bar_batt_time_text(int bar_idx, bool is_info_page) {
         if (b.time_label) {
             char buf[32];
             format_time(buf, data->time_s);
-            lv_label_set_text(b.time_label, data->BatteryLoad == 0 || data->TaskState == tsStandby ? "--" : buf);
+            // lv_label_set_text(b.time_label, data->BatteryLoad == 0 || data->TaskState == tsStandby ? "--" : buf);
+            /*法二 图像字符串容器*/
+            set_volcur_image_text(b.time_label, data->BatteryLoad == 0 || data->TaskState == tsStandby ? "-" : buf);
         }
     }
 
@@ -833,6 +930,152 @@ void update_batt_per_text(int bar_idx) {
         char buf2[32];
         snprintf(buf2, sizeof(buf2), "%d%%", value);
         lv_label_set_text(label_value, data->BatteryLoad == 0 ? "--" : buf2); 
+    }
+}
+
+
+
+ const lv_image_dsc_t* get_barbatt_workstatus_img(int32_t value){
+    switch (value) {
+        case ttCharge: return &img_bar_charge;
+        case ttDischarge: return &img_bar_discharge;
+        case ttStorage: return &img_bar_storage; 
+        case ttCycle: return &img_bar_cycle;
+        case ttAnalysis: return &img_bar_analyse; 
+        case ttActivate: return &img_bar_activate; 
+        case ttDestroy: return &img_bar_destory;
+        default: return &img_bar_none; 
+    }
+}
+
+/**
+ * @brief 更新进度条状态图像
+ * @param bar_idx 进度条索引, 0-3: 纵向电池，4-5：横向电池
+ */
+void update_bar_batt_img(int bar_idx)
+{
+    int batt_idx = GET_BATT_INDEX(current_selected_batt_comp_idx, bar_idx);
+    if (batt_idx >= MAX_BATT_TOTAL_COUNT) return;
+    batt_data_t* data = &g_batt_data[batt_idx];
+    layout_type_t g_current_layout = batt_coms[current_selected_batt_comp_idx].batt_cont_layout;
+    batt_t b = bar_conts[g_current_layout][g_current_layout == LAYOUT_VER ? bar_idx : bar_idx-4]; 
+    int newvalue = data->TaskState == tsStandby ? -1 : data->work_status;
+
+    if (b.workstatus_img) 
+    {
+        lv_image_set_src(b.workstatus_img, data->BatteryLoad == 0 ? &img_bar_none : get_barbatt_workstatus_img(newvalue));
+    }
+}
+
+
+
+
+/**
+ * @brief 更新进度条页面的第 bar_idx 个电池状态颜色
+ * @param batt_comp_idx 电池仓索引
+ * @param bar_idx 进度条索引, 0-3: 纵向电池，4-5：横向电池
+ * @param newvalue 工作状态
+ */
+static void update_bar_batt_workstatus(int bar_idx)
+{
+    int batt_idx = GET_BATT_INDEX(current_selected_batt_comp_idx, bar_idx);
+    if (batt_idx >= MAX_BATT_TOTAL_COUNT) return;
+    batt_data_t* data = &g_batt_data[batt_idx];
+    layout_type_t g_current_layout = batt_coms[current_selected_batt_comp_idx].batt_cont_layout;
+    batt_t b = bar_conts[g_current_layout][g_current_layout == LAYOUT_VER ? bar_idx : bar_idx-4]; 
+    int newvalue = data->TaskState == tsStandby ? -1 : data->work_status;
+
+    // printf("-》》》 bar page batt(%d) workstatus = %d, BatteryLoad = %d, TaskState = %d\n", batt_idx, newvalue, data->BatteryLoad, data->TaskState);
+
+    lv_obj_t* parent = lv_obj_get_parent(b.setting_img);
+    if (data->BatteryLoad == 0)
+    {
+        lv_obj_add_flag(parent, LV_OBJ_FLAG_HIDDEN);
+    }else{
+        lv_obj_remove_flag(parent, LV_OBJ_FLAG_HIDDEN);
+    }
+
+    if (b.bar_cont)
+    {
+        lv_obj_set_style_bg_color(b.bar_cont, data->BatteryLoad == 0 ? COLOR_1A1A1A : COLOR_262626, LV_PART_MAIN);
+        lv_obj_set_style_border_color(b.bar_cont, data->BatteryLoad == 0 ? COLOR_404040 : COLOR_999999, LV_PART_MAIN);
+    }
+    if (b.bar)
+    {
+        lv_obj_set_style_bg_color(b.bar, data->BatteryLoad == 0 ? COLOR_1A1A1A : COLOR_0D0D0D, LV_PART_MAIN);
+        lv_obj_set_style_bg_color(b.bar, data->BatteryLoad == 0 ? COLOR_1A1A1A : get_batt_workstatus_color(newvalue), LV_PART_INDICATOR);
+    }
+
+    if (b.batt_body)
+    {
+        lv_obj_set_style_bg_color(b.batt_body, data->BatteryLoad == 0 ? COLOR_0D0D0D : COLOR_1A1A1A, LV_PART_MAIN);
+        lv_obj_set_style_border_color(b.batt_body, data->BatteryLoad == 0 ? COLOR_404040 : COLOR_999999, LV_PART_MAIN);
+    }
+
+    if (b.workstatus_img) 
+    {
+        lv_obj_set_style_image_recolor(b.workstatus_img, data->BatteryLoad == 0 ? COLOR_000000 : get_batt_workstatus_color(newvalue), 0);
+    }
+
+    if (b.type_label)
+    {
+        lv_obj_set_style_text_color(b.type_label, data->BatteryLoad == 0 ? COLOR_4D4D4D : COLOR_FFFFFF, 0);
+    }
+    
+    if (b.volcur_label)
+    {
+        lv_obj_set_style_text_color(b.volcur_label, data->BatteryLoad == 0 ? COLOR_4D4D4D : COLOR_FFFFFF, 0);
+    }
+    
+    if (b.time_label)
+    {
+        lv_obj_set_style_text_color(b.time_label, data->BatteryLoad == 0 ? COLOR_4D4D4D : COLOR_FFFFFF, 0);
+    }
+
+}
+
+void update_battery_info_ui(int batt_index) {
+    if (batt_index < 0 || batt_index >= MAX_BATT_TOTAL_COUNT || info_layout == NULL) return;
+    int comp_index = batt_index % MAX_BATT_CNT_IN_COM;
+
+    // printf(">>> update_bar_battery_ui,  batt_index=%d, comp_index=%d\n", batt_index, comp_index);
+
+    layout_type_t g_current_layout = batt_coms[current_selected_batt_comp_idx].batt_cont_layout;
+
+    if (comp_index < 0 || comp_index >= MAX_BATT_CNT_IN_COM) return;
+    if ((comp_index < MAX_VER_BATT_CNT && g_current_layout != LAYOUT_VER) || (comp_index >= MAX_VER_BATT_CNT && g_current_layout == LAYOUT_VER)) return;
+    
+    update_bar_batt_type_text(comp_index, true);
+    update_bar_batt_volcur_text(comp_index,  true);
+    update_bar_batt_time_text(comp_index, true); 
+    update_batt_per_text(comp_index);
+    update_batt_mah_text(comp_index);
+    update_batt_ohms_text(comp_index);
+    update_batt_temp_text(comp_index); 
+    update_batt_wh_text(comp_index);
+}
+
+void update_battery_ui(int batt_index,bool refresh) {
+    if (batt_index < 0 || batt_index >= MAX_BATT_TOTAL_COUNT || bar_layout == NULL || (info_layout && !refresh)) return;
+    int comp_index = batt_index % MAX_BATT_CNT_IN_COM;
+
+    layout_type_t g_current_layout = batt_coms[current_selected_batt_comp_idx].batt_cont_layout;
+    if (comp_index < 0 || comp_index >= MAX_BATT_CNT_IN_COM) return;
+    if ((comp_index < MAX_VER_BATT_CNT && g_current_layout != LAYOUT_VER) || (comp_index >= MAX_VER_BATT_CNT && g_current_layout == LAYOUT_VER)) return;
+
+    update_bar_batt_workstatus(comp_index);
+    update_bar_batt_img(comp_index);
+    update_bar_batt_type_text(comp_index, false);
+    update_bar_batt_volcur_text(comp_index, false);
+    update_bar_batt_time_text(comp_index, false); 
+}
+
+void reset_line_chart_data(int battI)
+{
+    if (battI < 0 || battI >= MAX_BATT_TOTAL_COUNT) return;
+    for(int i =0;i<sizeof(g_batt_data[battI].line_chart_data)/sizeof(g_batt_data[battI].line_chart_data[0]);i++)
+    {
+        g_batt_data[battI].line_chart_data[i] = INT32_MIN;
     }
 }
 
@@ -2042,9 +2285,41 @@ static void row_click_event_cb(lv_event_t *e)
     {
         if(row_i == MAX_SETTING_ROW_COUNT - 1){
             printf("start task\n");
-            // on_language_changed();
 
-            // lv_obj_send_event(lv_obj_get_child(setting_mainlist[0].row_cont, 0), LV_EVENT_CLICKED,NULL);
+            int battI = GET_BATT_INDEX(current_selected_batt_comp_idx,current_selected_bar_idx);
+            TaskContent_t TaskContent;
+            
+            TaskContent.BatteryType = g_batt_data[battI].setting_items[0];
+
+            TaskContent.Task = g_batt_data[battI].setting_items[1];
+            if(TaskContent.Task == ttCharge || TaskContent.Task == ttStorage)
+            {
+                TaskContent.ChargeCurrent = g_batt_data[battI].setting_items[2];
+                TaskContent.ChargeVoltage = g_batt_data[battI].setting_items[3];
+            }
+            else if(TaskContent.Task == ttDischarge)
+            {
+                TaskContent.DischargeCurrent = g_batt_data[battI].setting_items[2];
+                TaskContent.DischargeVoltage = g_batt_data[battI].setting_items[3];
+            }
+            else if(TaskContent.Task == ttCycle || TaskContent.Task == ttAnalysis || TaskContent.Task == ttActivate)
+            {
+                TaskContent.ChargeCurrent = g_batt_data[battI].setting_items[4];
+                TaskContent.DischargeCurrent = g_batt_data[battI].setting_items[5];
+                TaskContent.DischargeVoltage = g_batt_data[battI].setting_items[3];
+            }
+
+            TaskContent.TaskCommand = tcStart;
+            g_batt_data[battI].work_status = g_batt_data[battI].setting_items[1];
+            printf(">>> start task %d: BatteryType:%d Task:%d Current:%d Voltage:%d\n",battI,TaskContent.BatteryType,TaskContent.Task,TaskContent.ChargeCurrent,TaskContent.ChargeVoltage);
+
+            if(g_batt_data[battI].BatteryLoad)
+            {
+                /** 嵌入式板: 装载了电池 **/
+                // set_slave_work_task(current_selected_batt_comp_idx,current_selected_bar_idx,TaskContent);
+            }
+
+            lv_obj_send_event(lv_obj_get_child(setting_mainlist[0].row_cont, 0), LV_EVENT_CLICKED,NULL);
 
             return;
 
@@ -3343,19 +3618,6 @@ static void info_page_create(int new_bar_idx){
  **********************/
 
 
- const lv_image_dsc_t* get_barbatt_workstatus_img(int32_t value){
-    switch (value) {
-        case ttCharge: return &img_bar_charge;
-        case ttDischarge: return &img_bar_discharge;
-        case ttStorage: return &img_bar_storage; 
-        case ttCycle: return &img_bar_cycle;
-        case ttAnalysis: return &img_bar_analyse; 
-        case ttActivate: return &img_bar_activate; 
-        case ttDestroy: return &img_bar_destory;
-        default: return &img_bar_none; 
-    }
-}
-
 void task_setting_click_event_cb(lv_event_t* e){
     lv_obj_t* cont = lv_event_get_target(e);
     int bar_idx = (int)(intptr_t)lv_obj_get_user_data(cont);
@@ -3398,28 +3660,28 @@ void bar_cont_click_event_cb(lv_event_t* e)
         //     current_selected_batt_comp_idx, g_current_layout);
         // printf("->>> click bar, actual_bar_idx = %d, current_selected_bar_idx = %d \n", actual_bar_idx, current_selected_bar_idx);
 
-        //测试
-        if (data->BatteryLoad == 0 || data->TaskState == tsStandby)
-        {
-            printf("->>> did not allow create info page, BatteryLoad = %d, TaskState = %d\n", data->BatteryLoad, data->TaskState);
+        // //测试
+        // if (data->BatteryLoad == 0 || data->TaskState == tsStandby)
+        // {
+        //     printf("->>> did not allow create info page, BatteryLoad = %d, TaskState = %d\n", data->BatteryLoad, data->TaskState);
 
-            if (!info_layout && bar_layout)
-            {
+        //     if (!info_layout && bar_layout)
+        //     {
                 
-                if (bar_layout)
-                {
-                    lv_delete_layout(&bar_layout);
-                } 
+        //         if (bar_layout)
+        //         {
+        //             lv_delete_layout(&bar_layout);
+        //         } 
                 
-                if (!stanby_page_layout)
-                {
-                    current_selected_batt_comp_idx = 0;
-                    stanby_page_create();
-                }
-            }
+        //         if (!stanby_page_layout)
+        //         {
+        //             current_selected_batt_comp_idx = 0;
+        //             stanby_page_create();
+        //         }
+        //     }
 
-            return;
-        }
+        //     return;
+        // }
 
 
         if (info_layout && current_selected_bar_idx == actual_bar_idx)
@@ -3507,92 +3769,6 @@ void bar_cont_click_event_cb(lv_event_t* e)
 
 
 /**
- * @brief 更新进度条状态图像
- * @param bar_idx 进度条索引, 0-3: 纵向电池，4-5：横向电池
- */
-void update_bar_batt_img(int bar_idx)
-{
-    int batt_idx = GET_BATT_INDEX(current_selected_batt_comp_idx, bar_idx);
-    if (batt_idx >= MAX_BATT_TOTAL_COUNT) return;
-    batt_data_t* data = &g_batt_data[batt_idx];
-    layout_type_t g_current_layout = batt_coms[current_selected_batt_comp_idx].batt_cont_layout;
-    batt_t b = bar_conts[g_current_layout][g_current_layout == LAYOUT_VER ? bar_idx : bar_idx-4]; 
-    int newvalue = data->TaskState == tsStandby ? -1 : data->work_status;
-
-    if (b.workstatus_img) 
-    {
-        lv_image_set_src(b.workstatus_img, data->BatteryLoad == 0 ? &img_bar_none : get_barbatt_workstatus_img(newvalue));
-    }
-}
-
-
-
-
-/**
- * @brief 更新进度条页面的第 bar_idx 个电池状态颜色
- * @param batt_comp_idx 电池仓索引
- * @param bar_idx 进度条索引, 0-3: 纵向电池，4-5：横向电池
- * @param newvalue 工作状态
- */
-static void update_bar_batt_workstatus(int bar_idx)
-{
-    int batt_idx = GET_BATT_INDEX(current_selected_batt_comp_idx, bar_idx);
-    if (batt_idx >= MAX_BATT_TOTAL_COUNT) return;
-    batt_data_t* data = &g_batt_data[batt_idx];
-    layout_type_t g_current_layout = batt_coms[current_selected_batt_comp_idx].batt_cont_layout;
-    batt_t b = bar_conts[g_current_layout][g_current_layout == LAYOUT_VER ? bar_idx : bar_idx-4]; 
-    int newvalue = data->TaskState == tsStandby ? -1 : data->work_status;
-
-    // printf("-》》》 bar page batt(%d) workstatus = %d, BatteryLoad = %d, TaskState = %d\n", batt_idx, newvalue, data->BatteryLoad, data->TaskState);
-
-    lv_obj_t* parent = lv_obj_get_parent(b.setting_img);
-    if (data->BatteryLoad == 0)
-    {
-        lv_obj_add_flag(parent, LV_OBJ_FLAG_HIDDEN);
-    }else{
-        lv_obj_remove_flag(parent, LV_OBJ_FLAG_HIDDEN);
-    }
-
-    if (b.bar_cont)
-    {
-        lv_obj_set_style_bg_color(b.bar_cont, data->BatteryLoad == 0 ? COLOR_1A1A1A : COLOR_262626, LV_PART_MAIN);
-        lv_obj_set_style_border_color(b.bar_cont, data->BatteryLoad == 0 ? COLOR_404040 : COLOR_999999, LV_PART_MAIN);
-    }
-    if (b.bar)
-    {
-        lv_obj_set_style_bg_color(b.bar, data->BatteryLoad == 0 ? COLOR_1A1A1A : COLOR_0D0D0D, LV_PART_MAIN);
-        lv_obj_set_style_bg_color(b.bar, data->BatteryLoad == 0 ? COLOR_1A1A1A : get_batt_workstatus_color(newvalue), LV_PART_INDICATOR);
-    }
-
-    if (b.batt_body)
-    {
-        lv_obj_set_style_bg_color(b.batt_body, data->BatteryLoad == 0 ? COLOR_0D0D0D : COLOR_1A1A1A, LV_PART_MAIN);
-        lv_obj_set_style_border_color(b.batt_body, data->BatteryLoad == 0 ? COLOR_404040 : COLOR_999999, LV_PART_MAIN);
-    }
-
-    if (b.workstatus_img) 
-    {
-        lv_obj_set_style_image_recolor(b.workstatus_img, data->BatteryLoad == 0 ? COLOR_000000 : get_batt_workstatus_color(newvalue), 0);
-    }
-
-    if (b.type_label)
-    {
-        lv_obj_set_style_text_color(b.type_label, data->BatteryLoad == 0 ? COLOR_4D4D4D : COLOR_FFFFFF, 0);
-    }
-    
-    if (b.volcur_label)
-    {
-        lv_obj_set_style_text_color(b.volcur_label, data->BatteryLoad == 0 ? COLOR_4D4D4D : COLOR_FFFFFF, 0);
-    }
-    
-    if (b.time_label)
-    {
-        lv_obj_set_style_text_color(b.time_label, data->BatteryLoad == 0 ? COLOR_4D4D4D : COLOR_FFFFFF, 0);
-    }
-
-}
-
-/**
 * @brief 创建进度条页面
 */
 static void bar_page_create(){
@@ -3640,9 +3816,9 @@ static void bar_page_create(){
 
         item.bg = lv_obj_create(bar_layout);
         lv_obj_add_style(item.bg, &bg_style, 0);
-        lv_obj_set_style_bg_color(item.bg, COLOR_003D4D, 0);
-        // lv_obj_set_style_bg_color(item.bg, COLOR_CLEAR, 0);
-        // lv_obj_set_style_bg_opa(item.bg, LV_OPA_TRANSP, 0);
+        // lv_obj_set_style_bg_color(item.bg, COLOR_003D4D, 0);
+        lv_obj_set_style_bg_color(item.bg, COLOR_CLEAR, 0);
+        lv_obj_set_style_bg_opa(item.bg, LV_OPA_TRANSP, 0);
         lv_obj_set_style_pad_all(item.bg, 2, 0);
         // 设置 grid 单元格位置，例如 i=0 -> 第0行第0列，i=1 -> 第0行第1列，i=2 -> 第0行第0列，i=3 -> 第0行第1列
         lv_obj_set_grid_cell(item.bg, 
@@ -3754,65 +3930,64 @@ static void bar_page_create(){
         lv_obj_remove_flag(text_bg, LV_OBJ_FLAG_CLICKABLE); //text_bg 以及它的任何子对象都不会响应点击事件,直接响应父级事件
 
         // 创建 grid 布局: 1*3
-        item.type_label = lv_label_create(text_bg);  
-        item.volcur_label = lv_label_create(text_bg);
-        item.time_label = lv_label_create(text_bg);
+        // item.type_label = lv_label_create(text_bg);  
+        // item.volcur_label = lv_label_create(text_bg);
+        // item.time_label = lv_label_create(text_bg);
         
-        lv_obj_set_style_text_color(item.type_label, COLOR_4D4D4D, 0);
-        lv_label_set_text(item.type_label, "1.5VLi");
-        lv_obj_set_style_text_font(item.type_label, &font_FUSION_PIXEL_PROPORTIONAL_12_2, 0); //font_FUSION_PIXEL_PROPORTIONAL_12_2
+        // lv_obj_set_style_text_color(item.type_label, COLOR_4D4D4D, 0);
+        // lv_label_set_text(item.type_label, "1.5VLi");
+        // lv_obj_set_style_text_font(item.type_label, &font_FUSION_PIXEL_PROPORTIONAL_12_2, 0); //font_FUSION_PIXEL_PROPORTIONAL_12_2
 
-        lv_obj_set_style_text_color(item.volcur_label, COLOR_4D4D4D, 0);
-        lv_label_set_text(item.volcur_label, "12V/10A");
-        lv_obj_set_style_text_font(item.volcur_label, &font_FUSION_PIXEL_PROPORTIONAL_12_2, 0);
+        // lv_obj_set_style_text_color(item.volcur_label, COLOR_4D4D4D, 0);
+        // lv_label_set_text(item.volcur_label, "12V/10A");
+        // lv_obj_set_style_text_font(item.volcur_label, &font_FUSION_PIXEL_PROPORTIONAL_12_2, 0);
 
-        lv_obj_set_style_text_color(item.time_label, COLOR_4D4D4D, 0);
-        lv_label_set_text(item.time_label, "01:23:45");
-        lv_obj_set_style_text_font(item.time_label, &font_FUSION_PIXEL_PROPORTIONAL_12_2, 0);
+        // lv_obj_set_style_text_color(item.time_label, COLOR_4D4D4D, 0);
+        // lv_label_set_text(item.time_label, "01:23:45");
+        // lv_obj_set_style_text_font(item.time_label, &font_FUSION_PIXEL_PROPORTIONAL_12_2, 0);
 
-        // item.type_label = lv_img_create(text_bg);  
-        // lv_image_set_src(item.type_label, &img_type_1_5vli);
-        // lv_obj_set_style_image_recolor_opa(item.type_label, LV_OPA_COVER, 0);
-        // lv_obj_set_style_image_recolor(item.type_label, COLOR_FFFFFF, 0);
+        /** 使用图像字符串容器，替换原 label **/
+        item.type_label = lv_img_create(text_bg);  
+        lv_image_set_src(item.type_label, &img_type_1_5vli);
+        lv_obj_set_style_image_recolor_opa(item.type_label, LV_OPA_COVER, 0);
+        lv_obj_set_style_image_recolor(item.type_label, COLOR_FFFFFF, 0);
+
+        item.volcur_label = lv_obj_create(text_bg);
+        lv_obj_remove_style_all(item.volcur_label);                 // 去掉默认背景/边框/pad
+        lv_obj_set_style_bg_opa(item.volcur_label, LV_OPA_TRANSP, 0);
+        lv_obj_set_style_pad_all(item.volcur_label, 0, 0);
+        lv_obj_set_style_pad_column(item.volcur_label, 2, 0);       // 字距，可按需调
+        lv_obj_set_flex_flow(item.volcur_label, LV_FLEX_FLOW_ROW);
+        lv_obj_set_flex_align(item.volcur_label,
+                            LV_FLEX_ALIGN_CENTER,                 // 主轴：水平居中
+                            LV_FLEX_ALIGN_CENTER,                 // 交叉轴：垂直居中
+                            LV_FLEX_ALIGN_CENTER);
+        lv_obj_remove_flag(item.volcur_label, LV_OBJ_FLAG_SCROLLABLE);
+        lv_obj_remove_flag(item.volcur_label, LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_set_width(item.volcur_label, LV_SIZE_CONTENT);
+        lv_obj_set_height(item.volcur_label, LV_SIZE_CONTENT);
 
 
-        // // 图像字符串容器，替换原 label
-        // item.volcur_label = lv_obj_create(text_bg);
-        // lv_obj_remove_style_all(item.volcur_label);                 // 去掉默认背景/边框/pad
-        // lv_obj_set_style_bg_opa(item.volcur_label, LV_OPA_TRANSP, 0);
-        // lv_obj_set_style_pad_all(item.volcur_label, 0, 0);
-        // lv_obj_set_style_pad_column(item.volcur_label, 2, 0);       // 字距，可按需调
-        // lv_obj_set_flex_flow(item.volcur_label, LV_FLEX_FLOW_ROW);
-        // lv_obj_set_flex_align(item.volcur_label,
-        //                     LV_FLEX_ALIGN_CENTER,                 // 主轴：水平居中
-        //                     LV_FLEX_ALIGN_CENTER,                 // 交叉轴：垂直居中
-        //                     LV_FLEX_ALIGN_CENTER);
-        // lv_obj_remove_flag(item.volcur_label, LV_OBJ_FLAG_SCROLLABLE);
-        // lv_obj_remove_flag(item.volcur_label, LV_OBJ_FLAG_CLICKABLE);
-        // lv_obj_set_width(item.volcur_label, LV_SIZE_CONTENT);
-        // lv_obj_set_height(item.volcur_label, LV_SIZE_CONTENT);
+        item.time_label = lv_obj_create(text_bg);
+        lv_obj_remove_style_all(item.time_label);                 // 去掉默认背景/边框/pad
+        lv_obj_set_style_bg_opa(item.time_label, LV_OPA_TRANSP, 0);
+        lv_obj_set_style_pad_all(item.time_label, 0, 0);
+        lv_obj_set_style_pad_column(item.time_label, 2, 0);       // 字距，可按需调
+        lv_obj_set_flex_flow(item.time_label, LV_FLEX_FLOW_ROW);
+        lv_obj_set_flex_align(item.time_label,
+                            LV_FLEX_ALIGN_CENTER,                 // 主轴：水平居中
+                            LV_FLEX_ALIGN_CENTER,                 // 交叉轴：垂直居中
+                            LV_FLEX_ALIGN_CENTER);
+        lv_obj_remove_flag(item.time_label, LV_OBJ_FLAG_SCROLLABLE);
+        lv_obj_remove_flag(item.time_label, LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_set_width(item.time_label, LV_SIZE_CONTENT);
+        lv_obj_set_height(item.time_label, LV_SIZE_CONTENT);
 
-
-        // item.time_label = lv_obj_create(text_bg);
-        // lv_obj_remove_style_all(item.time_label);                 // 去掉默认背景/边框/pad
-        // lv_obj_set_style_bg_opa(item.time_label, LV_OPA_TRANSP, 0);
-        // lv_obj_set_style_pad_all(item.time_label, 0, 0);
-        // lv_obj_set_style_pad_column(item.time_label, 2, 0);       // 字距，可按需调
-        // lv_obj_set_flex_flow(item.time_label, LV_FLEX_FLOW_ROW);
-        // lv_obj_set_flex_align(item.time_label,
-        //                     LV_FLEX_ALIGN_CENTER,                 // 主轴：水平居中
-        //                     LV_FLEX_ALIGN_CENTER,                 // 交叉轴：垂直居中
-        //                     LV_FLEX_ALIGN_CENTER);
-        // lv_obj_remove_flag(item.time_label, LV_OBJ_FLAG_SCROLLABLE);
-        // lv_obj_remove_flag(item.time_label, LV_OBJ_FLAG_CLICKABLE);
-        // lv_obj_set_width(item.time_label, LV_SIZE_CONTENT);
-        // lv_obj_set_height(item.time_label, LV_SIZE_CONTENT);
-
-        // // 初始文案
-        // set_volcur_image_text(item.volcur_label, "1.0V/1.2A");
-        // char buf2[32];
-        // format_time(buf2, 3665);
-        // set_volcur_image_text(item.time_label, "-");
+        // 初始文案
+        set_volcur_image_text(item.volcur_label, "1.0V/1.2A");
+        char buf2[32];
+        format_time(buf2, 3665);
+        set_volcur_image_text(item.time_label, "-");
 
 
 
@@ -4123,6 +4298,16 @@ static void show_bar_event(lv_event_t* e) {
         bar_page_create();
     }
 
+    // /** 若要动画,考虑进度条页面左滑返回动效需要时间,不删除主页 **/
+    // lv_obj_t* current_obj = lv_event_get_target(e);
+    // int batt_com_idx = (int)(intptr_t)lv_obj_get_user_data(current_obj);
+
+    // current_selected_batt_comp_idx = batt_com_idx;
+    // if (!bar_layout)
+    // {
+    //     current_selected_bar_idx = -1;
+    //     bar_page_create();
+    // }
 }
 
 void stanby_page_create(void){
@@ -4355,12 +4540,11 @@ void init_data()
         }
     }
 
-
-    batt_data_t data0 = {
+        batt_data_t data0 = {
         .TaskState = 1,
         .BatteryLoad = 1,
         .work_status = 0,
-        .batt_type = 0xff,
+        .batt_type = 0,
         .value_percent = 59,
         .value_mah = 999,       
         .value_Ohms = 56,
@@ -4374,7 +4558,7 @@ void init_data()
     g_batt_data[0] = data0;
 
     batt_data_t data1 = {
-        .TaskState = 0,
+        .TaskState = 1,
         .BatteryLoad = 1,
         .work_status = 0,
         .batt_type = 1,
@@ -4390,28 +4574,46 @@ void init_data()
     };
     g_batt_data[1] = data1;
 
-    // batt_data_t data2 = {
-    //     .TaskState = 1,
-    //     .BatteryLoad = 1,
-    //     .work_status = 3,
-    //     .batt_type = 1,
-    //     .value_percent = 110,
-    //     .value_mah = 999,       
-    //     .value_Ohms = 56,
-    //     .value_tempc = 45,
-    //     .value_tempf = 100,
-    //     .value_mWh = 999,
-    //     .vol_mv = 4200,
-    //     .cur_ma = 1010,
-    //     .time_s = 3665, 
-    // };
-    // g_batt_data[2] = data2;
+    batt_data_t data2 = {
+        .TaskState = 1,
+        .BatteryLoad = 1,
+        .work_status = 3,
+        .batt_type = 2,
+        .value_percent = 110,
+        .value_mah = 999,       
+        .value_Ohms = 56,
+        .value_tempc = 45,
+        .value_tempf = 100,
+        .value_mWh = 999,
+        .vol_mv = 4200,
+        .cur_ma = 1010,
+        .time_s = 3665, 
+    };
+    g_batt_data[2] = data2;
+
+    
+    batt_data_t data3 = {
+        .TaskState = 1,
+        .BatteryLoad = 1,
+        .work_status = 3,
+        .batt_type = 3,
+        .value_percent = 100,
+        .value_mah = 999,       
+        .value_Ohms = 56,
+        .value_tempc = 45,
+        .value_tempf = 100,
+        .value_mWh = 999,
+        .vol_mv = 4200,
+        .cur_ma = 1010,
+        .time_s = 3665, 
+    };
+    g_batt_data[3] = data3;
 
     batt_data_t data10 = {
         .TaskState = 1,
         .BatteryLoad = 1,
         .work_status = 3,
-        .batt_type = 1,
+        .batt_type = 4,
         .value_percent = 110,
         .value_mah = 999,       
         .value_Ohms = 56,
@@ -4424,29 +4626,25 @@ void init_data()
     };
     g_batt_data[10] = data10;
 
-    // batt_data_t data11 = {
-    //     .TaskState = 1,
-    //     .BatteryLoad = 0,
-    //     .work_status = 3,
-    //     .batt_type = 1,
-    //     .value_percent = 110,
-    //     .value_mah = 999,       
-    //     .value_Ohms = 56,
-    //     .value_tempc = 45,
-    //     .value_tempf = 100,
-    //     .value_mWh = 999,
-    //     .vol_mv = 4200,
-    //     .cur_ma = 1010,
-    //     .time_s = 3665, 
-    // };
-    // g_batt_data[11] = data11;
+    batt_data_t data11 = {
+        .TaskState = 1,
+        .BatteryLoad = 1,
+        .work_status = 3,
+        .batt_type = 5,
+        .value_percent = 110,
+        .value_mah = 999,       
+        .value_Ohms = 56,
+        .value_tempc = 45,
+        .value_tempf = 100,
+        .value_mWh = 999,
+        .vol_mv = 4200,
+        .cur_ma = 1010,
+        .time_s = 3665, 
+    };
+    g_batt_data[11] = data11;
+
 
 }
-
-static lv_coord_t gesture_start_x = 0;      //滑动时 x 坐标
-static lv_coord_t gesture_start_y = 0;      //滑动时 y 坐标
-static bool gesture_has_start = false;      //判断滑动手势是否触发
-
 
 static void hide_info_layout(void)
 {
@@ -4468,6 +4666,17 @@ static void start_bar_close_anim(void)
         current_selected_batt_comp_idx = 0;
         stanby_page_create();
     }
+
+    /** 若要动画,考虑进度条页面左滑返回动效需要时间,增加遮罩防止触发点击事件 **/
+    // if (!bar_layout || !lv_obj_is_valid(bar_layout)) {
+    //     printf("!bar_layout || !lv_obj_is_valid(bar_layout)\n");
+    //     bar_layout = NULL;
+    //     return;
+    // }
+    // lv_delete_layout(&bar_layout);
+    // lv_obj_t* mask1 = lv_obj_get_child(stanby_page_layout, -1);
+    // lv_obj_add_flag(mask1, LV_OBJ_FLAG_HIDDEN);
+
 
 }
 
@@ -4532,12 +4741,12 @@ static void screen_gesture_test_cb(lv_event_t *e)
 
             } else if (bar_layout && lv_obj_is_valid(bar_layout)) {
                 printf("close bar_layout\n");
-                //避免动画期间触发点击事件
-                lv_obj_t* mask = lv_obj_get_child(bar_layout, -1);
-                lv_obj_remove_flag(mask, LV_OBJ_FLAG_HIDDEN);
+                // //避免动画期间触发点击事件
+                // lv_obj_t* mask = lv_obj_get_child(bar_layout, -1);
+                // lv_obj_remove_flag(mask, LV_OBJ_FLAG_HIDDEN);
 
-                lv_obj_t* mask1 = lv_obj_get_child(stanby_page_layout, -1);
-                lv_obj_remove_flag(mask1, LV_OBJ_FLAG_HIDDEN);
+                // lv_obj_t* mask1 = lv_obj_get_child(stanby_page_layout, -1);
+                // lv_obj_remove_flag(mask1, LV_OBJ_FLAG_HIDDEN);
 
                 start_bar_close_anim();
             }
@@ -4558,7 +4767,201 @@ void page_create_v2(void){
     stanby_page_create();
 
     //屏幕左滑事件
+    /** 可通过修改 /lvgl/src/indev/lv_indev.c 里的
+     *  LV_INDEV_DEF_GESTURE_MIN_VELOCITY
+     *  LV_INDEV_DEF_GESTURE_LIMIT 
+     * 设置手势的灵敏度 **/
     lv_obj_add_event_cb(lv_scr_act(), screen_gesture_test_cb, LV_EVENT_GESTURE,    NULL);
 
+    // UI_Updata_Timer = lv_timer_create(UI_Data_Updata,500,NULL);
+}
 
+static void UI_Data_Updata(lv_timer_t * timer)
+{
+    //遍历获取电池数据
+    for(uint8_t i=0;i<get_slave_device_count();i++)
+    {
+        for(uint8_t j=0;j<MAX_BATT_CNT_IN_COM;j++)
+        {
+            ChannelData_t * ChannelData = get_channel_data(i,j);
+            layout_type_t g_current_layout = batt_coms[current_selected_batt_comp_idx].batt_cont_layout;
+            if(ChannelData == NULL) break;
+            int battI = GET_BATT_INDEX(i,j);
+            if(g_batt_data[battI].TaskState != ChannelData->TaskState)
+            {   
+                g_batt_data[battI].TaskState = ChannelData->TaskState;
+            }
+            
+            if(g_batt_data[battI].BatteryLoad != ChannelData->bBatteryLoad)
+            {
+                g_batt_data[battI].BatteryLoad = ChannelData->bBatteryLoad;
+                g_batt_data[battI].value_percent = ChannelData->TaskPercent;
+                if(ChannelData->bBatteryLoad)
+                { 
+                    g_batt_data[battI].chg_setting = 1;
+                    g_batt_data[battI].work_status = g_batt_data[battI].setting_items[1];
+                    if((g_current_layout == LAYOUT_VER && j >= 4) || (g_current_layout == LAYOUT_HOR && j < 4))
+                    {
+                        batt_coms[i].batt_cont_layout = j >=4 ? LAYOUT_HOR : LAYOUT_VER;
+                        update_batt_com_layout(i);
+                    }
+                }
+                else
+                {
+                    update_battery_info_ui(battI);
+                    update_battery_ui(battI,1);
+                    destroy_info_chart(battI);
+                    g_batt_data[battI].chg_setting = 0;
+                    if(GetChannelSampleCnt(battI) != 0)
+                    {
+                        reset_line_chart_data(battI);
+                        ChannelChartDataProcess(battI,ChannelData->OutputVoltage,1);
+                    }    
+
+                    g_batt_data[battI].TaskState = tsStandby;                    
+
+                    if(current_selected_batt_comp_idx == i && current_selected_bar_idx == j)
+                    {
+                        for(uint8_t k=0;k<MAX_BATT_CNT_IN_COM;k++)
+                        {
+                            int battI_show = GET_BATT_INDEX(i,k);
+                            if(g_batt_data[battI_show].BatteryLoad)
+                            {
+                                if(info_layout)
+                                {
+                                    current_selected_bar_idx = k;
+                                    update_battery_info_ui(battI_show);
+                                    manage_chart_timer(battI_show);
+                                }
+                                break;
+                            }  
+                        }
+                    }   
+                }
+                update_stanby_batt_workstatus(i,j);
+                update_stanby_bar_value(i,j); 
+            }
+            if(ChannelData->bBatteryLoad && ChannelData->TaskState >= tsStandby && g_batt_data[battI].BatteryLoad)
+            {
+                g_batt_data[battI].work_status = ChannelData->TaskContent.Task;
+                g_batt_data[battI].value_percent = ChannelData->TaskPercent;
+                g_batt_data[battI].vol_mv = ChannelData->OutputVoltage;
+                if(ChannelData->TaskState <= tsTrickleChging)
+                    g_batt_data[battI].cur_ma = ChannelData->OutputCurrent;
+                else if(ChannelData->TaskState <= tsConstVolDischging)
+                    g_batt_data[battI].cur_ma = -ChannelData->OutputCurrent;
+                g_batt_data[battI].time_s = ChannelData->TaskConsumingTime / 1000;
+                g_batt_data[battI].value_mah = ChannelData->TaskCapacity;
+                g_batt_data[battI].value_Ohms = ChannelData->Impedance100uOhm / 10;
+                g_batt_data[battI].value_tempc = ChannelData->BatteryTemperature;
+                g_batt_data[battI].value_tempf = ChannelData->BatteryTemperature * 9 / 5 + 32;
+                g_batt_data[battI].value_mWh = ChannelData->TaskEnergy;
+
+                g_batt_data[battI].batt_type = ChannelData->BatteryType;
+                if(ChannelData->TaskState > tsStandby && ChannelData->TaskState != tsTrickleChging && ChannelData->TaskState != tsDischargDone)
+                    ChannelChartDataProcess(battI,ChannelData->OutputVoltage,0);
+
+                if(current_selected_batt_comp_idx == i)
+                {
+                    if(current_selected_bar_idx == j)
+                    {
+                        if(info_layout && g_info_charts[g_current_layout] && !info_chart_timer)
+                        {
+                            manage_chart_timer(battI);
+                        }
+                        update_battery_info_ui(battI);                      
+                    }
+                    update_battery_ui(battI,0);
+                }
+                update_stanby_bar_value(i, j);       
+            } 
+        }    
+    }
+
+    //遍历弹出充电设置
+    for(uint8_t i=0;i<g_ui_data.slave_device_count;i++)
+    {
+        for(uint8_t j=0;j<MAX_BATT_CNT_IN_COM;j++)
+        {
+            int battI = GET_BATT_INDEX(i,j);
+            if(g_batt_data[battI].BatteryLoad && g_batt_data[battI].chg_setting)
+            {
+                lv_delete_layout(&stanby_page_layout);
+                lv_delete_layout(&bar_layout);
+                if(info_layout)
+                {
+                    destroy_info_chart(GET_BATT_INDEX(current_selected_batt_comp_idx,current_selected_bar_idx));
+                    lv_delete_layout(&info_layout);
+                }
+                
+                if(!setting_layout)
+                {
+                    current_selected_batt_comp_idx = i;
+                    current_selected_bar_idx = j;
+                    current_selected_taskrow_idx = 0;
+                    setting_page_create(current_selected_bar_idx);
+                    g_batt_data[battI].chg_setting = 0;
+                }
+                else
+                {
+                    if(current_selected_batt_comp_idx != i || current_selected_bar_idx != j)
+                    {
+                        if(!g_batt_data[GET_BATT_INDEX(current_selected_batt_comp_idx,current_selected_bar_idx)].BatteryLoad)
+                        {
+                            lv_delete_layout(&setting_layout);
+                            current_selected_batt_comp_idx = i;
+                            current_selected_bar_idx = j;
+                            current_selected_taskrow_idx = 0;
+                            setting_page_create(current_selected_bar_idx);
+                            g_batt_data[battI].chg_setting = 0;
+                        }                       
+                    }
+                    else
+                    {
+                        g_batt_data[battI].chg_setting = 0;
+                    }
+                }
+                break;
+            }
+        }
+    }
+
+    /** 嵌入式开发板外部按键  **/
+    // if(get_key_state())
+    // {
+    //     layout_type_t g_current_layout = batt_coms[current_selected_batt_comp_idx].batt_cont_layout;
+    //     if (!info_layout && bar_layout)
+    //     {
+    //         if (bar_layout)
+    //         {
+    //             lv_delete_layout(&bar_layout);
+    //         } 
+            
+    //         if (!stanby_page_layout)
+    //         {
+    //             current_selected_batt_comp_idx = 0;
+    //             stanby_page_create();
+    //         }
+    //     }
+    //     else if (info_layout && bar_layout)
+    //     {
+    //         lv_obj_send_event(g_info_rows[g_current_layout][0].info_icon,LV_EVENT_CLICKED,NULL);
+    //     }
+    //     else if (setting_layout)
+    //     {
+    //         lv_obj_send_event(setting_mainlist[0].title_img,LV_EVENT_CLICKED,NULL);
+    //     }
+    // }
+
+    // if(btn_group_activate)
+    // {
+    //     btn_group_activate_remaining_time += UI_Updata_Timer->period;
+    //     if(btn_group_activate_remaining_time > 3000)
+    //     {
+    //         btn_group_activate_remaining_time = 0;
+    //         btn_group_activate = 0;
+    //         lv_group_focus_next(btn_group);
+    //         lv_group_focus_prev(btn_group);
+    //     }
+    // }
 }

@@ -30,6 +30,34 @@ extern "C" {
 
 
 // 声明图像描述符
+LV_IMAGE_DECLARE(img_type_auto);
+LV_IMAGE_DECLARE(img_type_nimh);
+LV_IMAGE_DECLARE(img_type_nicd);
+LV_IMAGE_DECLARE(img_type_nizn);
+LV_IMAGE_DECLARE(img_type_liion);
+LV_IMAGE_DECLARE(img_type_life);
+LV_IMAGE_DECLARE(img_type_lihv);
+LV_IMAGE_DECLARE(img_type_eneloop);
+LV_IMAGE_DECLARE(img_type_1_5vli);
+LV_IMAGE_DECLARE(img_uint_a);
+LV_IMAGE_DECLARE(img_uint_b);
+
+LV_IMAGE_DECLARE(img_text_none);
+LV_IMAGE_DECLARE(img_period);
+LV_IMAGE_DECLARE(img_colon);
+LV_IMAGE_DECLARE(img_slash);
+
+LV_IMAGE_DECLARE(img_num_0);
+LV_IMAGE_DECLARE(img_num_1);
+LV_IMAGE_DECLARE(img_num_2);
+LV_IMAGE_DECLARE(img_num_3);
+LV_IMAGE_DECLARE(img_num_4);
+LV_IMAGE_DECLARE(img_num_5);
+LV_IMAGE_DECLARE(img_num_6);
+LV_IMAGE_DECLARE(img_num_7);
+LV_IMAGE_DECLARE(img_num_8);
+LV_IMAGE_DECLARE(img_num_9);
+
 LV_IMAGE_DECLARE(img_small_charge);
 LV_IMAGE_DECLARE(img_small_cycle);
 LV_IMAGE_DECLARE(img_small_error);
